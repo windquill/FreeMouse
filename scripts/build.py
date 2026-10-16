@@ -4,7 +4,7 @@ from pathlib import Path
 import os, plistlib, shutil, subprocess, sys, struct, tempfile
 ROOT=Path(__file__).resolve().parents[1]
 WORK=ROOT/'.build'
-BUILD=WORK/'release-1.1.19'
+BUILD=WORK/'release-1.1.20'
 APP=BUILD/'自在工具箱.app'
 def run(args):
     print('+', ' '.join(map(str,args)), flush=True)
@@ -22,12 +22,12 @@ if BUILD.exists():
         raise SystemExit(f'Refusing to overwrite {BUILD}; use --refresh-binary for this generated app only')
     info=plistlib.loads((APP/'Contents/Info.plist').read_bytes())
     assert info['CFBundleIdentifier']=='local.freemouse.toolbox'
-    assert info['CFBundleShortVersionString']=='1.1.19' and info['CFBundleVersion']=='21'
+    assert info['CFBundleShortVersionString']=='1.1.20' and info['CFBundleVersion']=='22'
     compile_app()
     copy_notices()
     run(['codesign','--force','--sign','-','--identifier','local.freemouse.toolbox',APP])
     run(['codesign','--verify','--deep','--strict','--verbose=2',APP])
-    print('PASS: refreshed 1.1.19 build 21 executable and verified signature')
+    print('PASS: refreshed 1.1.20 build 22 executable and verified signature')
     raise SystemExit(0)
 BUILD.mkdir(parents=True)
 contents=APP/'Contents'
@@ -37,7 +37,7 @@ copy_notices()
 compile_app()
 plist={
  'CFBundleName':'自在工具箱','CFBundleDisplayName':'自在工具箱','CFBundleExecutable':'FreeMouse',
- 'CFBundleIdentifier':'local.freemouse.toolbox','CFBundleShortVersionString':'1.1.19','CFBundleVersion':'21',
+ 'CFBundleIdentifier':'local.freemouse.toolbox','CFBundleShortVersionString':'1.1.20','CFBundleVersion':'22',
  'CFBundlePackageType':'APPL','CFBundleIconFile':'AppIcon','LSMinimumSystemVersion':'15.0',
  'NSHighResolutionCapable':True,'NSPrincipalClass':'NSApplication','LSUIElement':True,
  'NSCameraUsageDescription':'仅在您开启录屏摄像头小窗时采集摄像头画面，并将其保存到您选择的本机视频文件。',
@@ -76,7 +76,7 @@ extension=contents/'PlugIns/FreeMouseFinder.appex'
 # Darwin modules. Use one fresh absolute cache for each extension build.
 with tempfile.TemporaryDirectory(prefix='finder-build-',dir=BUILD) as finder_cache:
  run(['xcrun','swiftc','-O','-swift-version','5','-target','arm64-apple-macos15.0','-module-name','FreeMouseFinder','-module-cache-path',finder_cache,'-application-extension','-parse-as-library','-Xlinker','-e','-Xlinker','_NSExtensionMain',ROOT/'FinderExtension/FinderExtension.swift',ROOT/'Sources/FreeMouse/MenuCatalog.swift',ROOT/'Sources/FreeMouse/FinderMenuPreferences.swift',ROOT/'Sources/FreeMouse/FinderMenuBuilder.swift','-o',extension/'Contents/MacOS/FreeMouseFinder'])
-extension_plist={'CFBundleName':'自在工具箱 Finder','CFBundleDisplayName':'自在工具箱 Finder','CFBundleIdentifier':'local.freemouse.toolbox.finder','CFBundleVersion':'21','CFBundleShortVersionString':'1.1.19','CFBundlePackageType':'XPC!','CFBundleExecutable':'FreeMouseFinder','LSMinimumSystemVersion':'15.0','NSExtension':{'NSExtensionPointIdentifier':'com.apple.FinderSync','NSExtensionPrincipalClass':'FinderExtension'}}
+extension_plist={'CFBundleName':'自在工具箱 Finder','CFBundleDisplayName':'自在工具箱 Finder','CFBundleIdentifier':'local.freemouse.toolbox.finder','CFBundleVersion':'22','CFBundleShortVersionString':'1.1.20','CFBundlePackageType':'XPC!','CFBundleExecutable':'FreeMouseFinder','LSMinimumSystemVersion':'15.0','NSExtension':{'NSExtensionPointIdentifier':'com.apple.FinderSync','NSExtensionPrincipalClass':'FinderExtension'}}
 with (extension/'Contents/Info.plist').open('wb') as f: plistlib.dump(extension_plist,f)
 entitlements=BUILD/'finder-entitlements.plist'
 with entitlements.open('wb') as f: plistlib.dump({'com.apple.security.app-sandbox':True,'com.apple.security.files.user-selected.read-only':True,'com.apple.security.temporary-exception.shared-preference.read-only':['local.freemouse.toolbox.finder-menu']},f)
@@ -85,9 +85,9 @@ run(['codesign','--force','--sign','-','--identifier','local.freemouse.toolbox',
 run(['codesign','--verify','--deep','--strict','--verbose=2',APP])
 for info_path in [contents/'Info.plist', extension/'Contents/Info.plist']:
  info=plistlib.loads(info_path.read_bytes())
- assert info['CFBundleShortVersionString']=='1.1.19' and info['CFBundleVersion']=='21'
+ assert info['CFBundleShortVersionString']=='1.1.20' and info['CFBundleVersion']=='22'
 actual=plistlib.loads((contents/'Info.plist').read_bytes())
 assert actual['LSUIElement'] is True and actual['NSCameraUsageDescription']
-print('PASS: 1.1.19 build 21, scroll capture pacing and tail settling')
+print('PASS: 1.1.20 build 22, scroll capture pacing and tail settling')
 print(APP)
 

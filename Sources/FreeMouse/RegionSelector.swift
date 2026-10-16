@@ -49,6 +49,8 @@ final class RegionSelector {
                     window.isOpaque = false
                     window.backgroundColor = .clear
                     window.hasShadow = false
+                    window.ignoresMouseEvents = false
+                    window.acceptsMouseMovedEvents = true
                     window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
                     let view = SelectionView(frame: NSRect(origin: .zero, size: screen.frame.size), showsActions: showsActions,
                         visibleBounds: screen.visibleFrame.offsetBy(dx: -screen.frame.minX, dy: -screen.frame.minY))
@@ -106,6 +108,12 @@ private final class SelectionWindow: NSWindow {
 private final class SelectionView: NSView {
     var onComplete: ((CGRect?, Bool, ScrollOutputAction) -> Void)?
     var onActivate: (() -> Void)?
+    private enum Drag {
+        case create(CGPoint)
+        case move(CGRect, CGPoint)
+        case resize(CGRect, SelectionHandle, CGPoint)
+    }
+    private var drag: Drag?
     private var origin: NSPoint?
     private var selection: CGRect?
     private let showsActions: Bool
@@ -122,11 +130,20 @@ private final class SelectionView: NSView {
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .crosshair)
+        if let selection {
+            addCursorRect(selection.insetBy(dx: 8, dy: 8), cursor: .openHand)
+            for h in SelectionHandle.allCases {
+                let p = h.point(in: selection)
+                let cursor: NSCursor = (h == .left || h == .right) ? .resizeLeftRight : .resizeUpDown
+                addCursorRect(CGRect(x: p.x - 7, y: p.y - 7, width: 14, height: 14), cursor: cursor)
+            }
+        }
         if let toolbar, !toolbar.isHidden { addCursorRect(toolbar.frame, cursor: .arrow) }
     }
 
     func resetSelection() {
         origin = nil
+        drag = nil
         selection = nil
         toolbar?.isHidden = true
         window?.invalidateCursorRects(for: self)
@@ -137,32 +154,63 @@ private final class SelectionView: NSView {
         window?.makeKey()
         window?.makeFirstResponder(self)
         onActivate?()
-        resetSelection()
-        origin = clampedPoint(convert(event.locationInWindow, from: nil))
+        let point = clampedPoint(convert(event.locationInWindow, from: nil))
+        if let selection, let handle = SelectionGeometry.handle(at: point, rect: selection) {
+            drag = .resize(selection, handle, point)
+        } else if let selection, selection.contains(point) {
+            drag = .move(selection, point)
+        } else {
+            resetSelection()
+            drag = .create(point)
+        }
+        toolbar?.isHidden = true
+        origin = point
     }
     override func mouseDragged(with event: NSEvent) {
-        guard let origin else { return }
-        let point = clampedPoint(convert(event.locationInWindow, from: nil))
-        selection = CGRect(x: min(point.x, origin.x), y: min(point.y, origin.y),
-                           width: abs(point.x - origin.x), height: abs(point.y - origin.y))
+        guard let drag else { return }
+        let rawPoint = convert(event.locationInWindow, from: nil)
+        let point = clampedPoint(rawPoint)
+        switch drag {
+        case .create(let start):
+            selection = CGRect(x: min(point.x, start.x), y: min(point.y, start.y),
+                               width: abs(point.x - start.x), height: abs(point.y - start.y))
+        case .move(let rect, let start):
+            selection = SelectionGeometry.moved(rect, delta: CGSize(width: point.x - start.x, height: point.y - start.y), bounds: bounds)
+        case .resize(let rect, let handle, let start):
+            let edge = handle.point(in: rect)
+            let adjusted = CGPoint(x: edge.x + rawPoint.x - start.x, y: edge.y + rawPoint.y - start.y)
+            selection = SelectionGeometry.resized(rect, handle: handle, point: adjusted, bounds: bounds)
+        }
         needsDisplay = true
     }
+    // The overlay owns all pointer input until a capture action dismisses it.
+    override func scrollWheel(with event: NSEvent) {}
+    override func rightMouseDown(with event: NSEvent) {}
+    override func rightMouseUp(with event: NSEvent) {}
+    override func otherMouseDown(with event: NSEvent) {}
+    override func otherMouseUp(with event: NSEvent) {}
+
     override func mouseUp(with event: NSEvent) {
         mouseDragged(with: event)
         origin = nil
+        drag = nil
+        window?.invalidateCursorRects(for: self)
         guard let selection, selection.width >= 4, selection.height >= 4 else {
             resetSelection()
             return
         }
-        if showsActions { showToolbar(for: selection) }
-        else { onComplete?(selection, false, .edit) }
+        showToolbar(for: selection)
         needsDisplay = true
     }
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 { onComplete?(nil, false, .edit); return }
         guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return }
         if event.keyCode == 15 { resetSelection(); return }
-        guard showsActions, origin == nil, let selection, selection.width >= 4, selection.height >= 4 else { return }
+        guard origin == nil, let selection, selection.width >= 4, selection.height >= 4 else { return }
+        if !showsActions {
+            if event.keyCode == 36 || event.keyCode == 76 { onComplete?(selection, false, .edit) }
+            return
+        }
         if event.keyCode == 36 || event.keyCode == 76 { onComplete?(selection, false, .copy) }
         else if event.keyCode == 49 { onComplete?(selection, false, .save) }
         else if event.keyCode == 31 { onComplete?(selection, false, .recognize) }
@@ -185,7 +233,7 @@ private final class SelectionView: NSView {
             bar.layer?.cornerRadius = 12
             bar.layer?.borderWidth = 1
             bar.layer?.borderColor = NSColor.white.withAlphaComponent(0.2).cgColor
-            let items: [(String, CGFloat, Selector)] = [
+            let items: [(String, CGFloat, Selector)] = showsActions ? [
                 ("编辑", 62, #selector(captureSelection)),
                 ("长截图 S", 92, #selector(scrollSelection)),
                 ("复制 ↵", 78, #selector(copySelection)),
@@ -193,7 +241,8 @@ private final class SelectionView: NSView {
                 ("识字 O", 78, #selector(recognizeSelection)),
                 ("重选", 72, #selector(reselect)),
                 ("取消 Esc", 76, #selector(cancelSelection))
-            ]
+            ] : [("完成 ↵", 90, #selector(captureSelection)),
+                 ("重选", 72, #selector(reselect)), ("取消 Esc", 90, #selector(cancelSelection))]
             var x: CGFloat = 12
             for (title, width, action) in items {
                 let button = NSButton(title: title, target: self, action: action)
@@ -207,7 +256,7 @@ private final class SelectionView: NSView {
             addSubview(bar)
             toolbar = bar
         }
-        bar.frame = SelectionToolbarPlacement.frame(selection: selection, visibleBounds: visibleBounds, size: CGSize(width: 616, height: 54))
+        bar.frame = SelectionToolbarPlacement.frame(selection: selection, visibleBounds: visibleBounds, size: CGSize(width: showsActions ? 616 : 300, height: 54))
         bar.isHidden = false
         window?.invalidateCursorRects(for: self)
     }
@@ -224,15 +273,21 @@ private final class SelectionView: NSView {
         NSColor.black.withAlphaComponent(0.35).setFill()
         bounds.fill()
         if let selection {
-            NSColor.clear.setFill()
+            // A fully transparent NSWindow region can pass clicks to the app below.
+            NSColor.black.withAlphaComponent(0.01).setFill()
             selection.fill(using: .copy)
             NSColor.white.setStroke()
             let border = NSBezierPath(rect: selection.insetBy(dx: 0.5, dy: 0.5))
             border.lineWidth = 1
             border.stroke()
+            for h in SelectionHandle.allCases {
+                let p = h.point(in: selection)
+                NSColor.white.setFill()
+                CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6).fill()
+            }
         }
-        let ready = showsActions && origin == nil && selection != nil
-        let message = ready ? "Enter 复制 · Space 保存 · O 识字 · S 长截图 · Esc 取消" : "拖动选择区域 · 按 Esc 取消 · 每次选择一个显示器"
+        let ready = origin == nil && selection != nil
+        let message = ready ? "拖动框内移动 · 拖动边角缩放 · 工具条完成 · Esc 取消" : "拖动选择区域 · 按 Esc 取消 · 每次选择一个显示器"
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 17, weight: .medium), .foregroundColor: NSColor.white]
         message.draw(at: NSPoint(x: visibleBounds.minX + 28, y: visibleBounds.maxY - 44), withAttributes: attributes)
     }
