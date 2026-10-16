@@ -51,8 +51,7 @@ final class ScrollCaptureController: NSObject {
                 self.capturedHeight = progress.currentHeight
                 if let image { self.overlay?.updatePreview(image: image, height: progress.currentHeight, frameCount: progress.frameCount) }
             }
-        }, onComplete: { [weak self, engine] image in
-            let issue = engine.completionIssue
+        }, onComplete: { [weak self] image in
             Task { @MainActor [weak self] in
                 guard let self, self.generation == token else { return }
                 let deliver = self.completion
@@ -60,14 +59,6 @@ final class ScrollCaptureController: NSObject {
                 self.cleanup()
                 let resultGeneration = self.generation
                 if let image, requested {
-                    if let issue {
-                        let alert = NSAlert()
-                        alert.messageText = "最后一段未确认拼接"
-                        alert.informativeText = issue + " 可输出已经采集的内容，或取消本次截图。"
-                        alert.addButton(withTitle: "输出已有内容")
-                        alert.addButton(withTitle: "取消")
-                        guard alert.runModal() == .alertFirstButtonReturn else { return }
-                    }
                     guard self.generation == resultGeneration else { return }
                     deliver?(image)
                 }

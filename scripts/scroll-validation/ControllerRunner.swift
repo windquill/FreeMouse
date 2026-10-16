@@ -109,7 +109,8 @@ enum ValidationError: Error { case failed(String) }
             }
             controller.cancel()
             log("CAPSO_RESTART_PASS")
-            controller.start(region: state.region) { _ in deliveries += 1 }
+            output = nil
+            controller.start(region: state.region) { image in output = image; deliveries += 1 }
             controller.beginCapture()
             try await waitForHeight(controller, height: Int(state.height * state.scale))
             try send(directory, sequence: 200, offset: origin + 5000)
@@ -127,14 +128,14 @@ enum ValidationError: Error { case failed(String) }
             RunLoop.main.add(observer, forMode: .modalPanel)
             controller.finishCapture()
             for _ in 0..<500 {
-                if warned { break }
+                if warned || output != nil { break }
                 try await Task.sleep(for: .milliseconds(15))
             }
             observer.invalidate()
-            guard warned, deliveries == 1, !controller.isActive else {
-                throw ValidationError.failed("Missing unmatched-tail warning or cancelled output delivered")
+            guard !warned, deliveries == 2, output != nil, !controller.isActive else {
+                throw ValidationError.failed("Finish did not deliver existing image without confirmation")
             }
-            log("CAPSO_UNMATCHED_TAIL_PASS warning=true cancelled=true")
+            log("CAPSO_FINISH_NO_DIALOG_PASS existingImage=true")
             let still = ScrollCaptureController()
             var stillOutput: CGImage?
             still.start(region: state.region) { stillOutput = $0 }
