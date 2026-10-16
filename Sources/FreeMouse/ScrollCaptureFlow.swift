@@ -12,13 +12,16 @@ struct ScrollCaptureFlow {
     private(set) var hasUnmatchedFrame = false
     private var lastProgress: TimeInterval = 0
     private var failures = 0
+    private var movedWhilePaused = false
     var shouldScroll: Bool { phase == .running && mode == .automatic && hasImage }
     mutating func started(at time: TimeInterval) {
         guard phase == .preparing else { return }; phase = .running; lastProgress = time
     }
     mutating func accepted(at time: TimeInterval) {
         guard phase != .ended else { return }
-        hasImage = true; lastProgress = time; failures = 0; hasUnmatchedFrame = false
+        hasImage = true; lastProgress = time; failures = 0
+        if phase != .paused { movedWhilePaused = false }
+        hasUnmatchedFrame = movedWhilePaused
     }
     mutating func setAutomatic(_ enabled: Bool, at time: TimeInterval) {
         guard phase == .running || phase == .paused else { return }
@@ -38,7 +41,8 @@ struct ScrollCaptureFlow {
     }
     mutating func matchedWithoutAdvance() {
         guard phase != .ended else { return }
-        hasUnmatchedFrame = false
+        if phase != .paused { movedWhilePaused = false }
+        hasUnmatchedFrame = movedWhilePaused
         failures = 0
         // Recognizing already captured content recovers the match, but must
         // not extend the document-progress timer or resume a user pause.
@@ -49,13 +53,20 @@ struct ScrollCaptureFlow {
         // Do not change the mode, user pause, or the failed-match counter.
         lastProgress = time
     }
+    mutating func userScrolled() {
+        guard phase == .paused else { return }
+        movedWhilePaused = true
+        hasUnmatchedFrame = true
+    }
     mutating func requestFinish(_ action: ScrollOutputAction) -> Bool {
         guard phase != .ended && phase != .finishing else { return false }
         phase = .finishing; return true
     }
-    mutating func togglePause(at time: TimeInterval) {
+    mutating func togglePause(at time: TimeInterval, hasInFlightFrame: Bool = false) {
         switch phase {
-        case .running: phase = .paused
+        case .running:
+            phase = .paused
+            if hasInFlightFrame { userScrolled() }
         case .paused: phase = .running; lastProgress = time; failures = 0
         default: break
         }

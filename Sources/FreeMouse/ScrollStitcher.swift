@@ -22,6 +22,14 @@ final class ScrollStitcher {
     var totalHeight: Int { height }
     var width: Int { previous?.width ?? 0 }
 
+    /// A paused capture must not append the page the user moved to. Only an
+    /// exact match can confirm that the saved viewport is still current.
+    func matchesLastViewport(_ frame: CGImage) throws -> Bool {
+        guard let previous, frame.width == previous.width,
+              frame.height == previous.height else { return false }
+        return try Raster(frame, colorSpace: colorSpace).bytes == previous.bytes
+    }
+
     var image: CGImage? {
         guard let previous, height > 0,
               let provider = CGDataProvider(data: Data(pixels) as CFData) else { return nil }

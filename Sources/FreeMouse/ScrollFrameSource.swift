@@ -43,6 +43,7 @@ struct ScrollVideoFrame {
 
 /// Preserve every bridge frame within explicit frame and pixel budgets.
 final class ScrollFrameBuffer {
+    static let defaultMaximumPixels = 24_000_000
     private let lock = NSLock()
     private let maximumFrames: Int
     private let maximumPixels: Int
@@ -54,8 +55,13 @@ final class ScrollFrameBuffer {
     private var backpressured = false
     private var publicationSuspended = false
     private var deferredSequence: UInt64 = 0
+    private var isPaused = false
+    // The serial native producer can have one conversion in flight. Allocate
+    // its ordinal before conversion so a pause or seal can report its loss.
+    private var preparedSequence: UInt64?
+    private var preparedFrameIsValid = false
 
-    init(maxFrames: Int = 8, maxPixels: Int = 24_000_000) {
+    init(maxFrames: Int = 8, maxPixels: Int = ScrollFrameBuffer.defaultMaximumPixels) {
         precondition(maxFrames > 0 && maxPixels > 0)
         maximumFrames = maxFrames
         maximumPixels = maxPixels
@@ -64,6 +70,10 @@ final class ScrollFrameBuffer {
     var failure: String? { locked { errorMessage } }
     var isBackpressured: Bool { locked { backpressured } }
     var lastDeferredSequence: UInt64 { locked { deferredSequence } }
+    var lastSampleSequence: UInt64 { locked { sequence } }
+    var hasPendingFrames: Bool {
+        locked { !pending.isEmpty || (preparedSequence != nil && preparedFrameIsValid) }
+    }
 
     func begin() -> UUID {
         locked {
@@ -75,36 +85,96 @@ final class ScrollFrameBuffer {
             backpressured = false
             publicationSuspended = false
             deferredSequence = 0
+            isPaused = false
+            preparedSequence = nil
+            preparedFrameIsValid = false
             return next
         }
     }
 
     func isActive(token: UUID) -> Bool { locked { self.token == token } }
 
+    /// Check before allocating immutable pixels. Every complete native sample
+    /// gets an ordinal here; publish reuses it after conversion.
+    func prepareFrame(width: Int, height: Int, token: UUID) -> Bool {
+        locked {
+            guard self.token == token else { return false }
+            sequence &+= 1
+            guard !isPaused else {
+                recordUnmatchedLocked(sequence)
+                return false
+            }
+            guard let pixelCount = framePixelCount(width: width, height: height) else {
+                failLocked(frameCapacityMessage(width: width, height: height), token: token)
+                return false
+            }
+            guard !publicationSuspended, pending.count < maximumFrames,
+                  pixelCount <= maximumPixels - pendingPixels else {
+                deferFrameLocked(sequence)
+                return false
+            }
+            // Between this check and publish, only the consumer can change the
+            // queue size. Pause/stop invalidate publication separately.
+            preparedSequence = sequence
+            preparedFrameIsValid = true
+            return true
+        }
+    }
+
+    func setPaused(_ paused: Bool, token: UUID) {
+        locked {
+            guard self.token == token else { return }
+            isPaused = paused
+            guard paused else { return }
+            if let last = pending.last { recordUnmatchedLocked(last.sequence) }
+            if let preparedSequence { recordUnmatchedLocked(preparedSequence) }
+            // Keep the ordinal until this conversion returns, so a rapid resume
+            // cannot accept the discarded image as a fresh direct publication.
+            preparedFrameIsValid = false
+            pending.removeAll(keepingCapacity: true)
+            pendingPixels = 0
+            backpressured = false
+            publicationSuspended = false
+            // A pause without queued/in-flight frames does not invent a gap.
+        }
+    }
+
     func publish(_ image: CGImage, timestamp: TimeInterval, token: UUID) {
         locked {
             guard self.token == token else { return }
-            // Count rejected samples too: a later matched frame must cross
-            // this ordinal before an interrupted tail can be called complete.
-            sequence &+= 1
-            let pixelSize = image.width.multipliedReportingOverflow(by: image.height)
-            guard !pixelSize.overflow, pixelSize.partialValue > 0,
-                  pixelSize.partialValue <= maximumPixels else {
-                let message = "单帧截图 \(image.width) × \(image.height) px 超过帧缓存安全容量，请缩小选区后重试。已有截图可保存。"
-                failLocked(message, token: token)
+            let frameSequence: UInt64
+            if let preparedSequence {
+                frameSequence = preparedSequence
+                self.preparedSequence = nil
+                let valid = preparedFrameIsValid
+                preparedFrameIsValid = false
+                guard valid, !isPaused else {
+                    recordUnmatchedLocked(frameSequence)
+                    return
+                }
+            } else {
+                // Keep direct publication compatible with callers that do not
+                // use native admission, including its rejected-sample ordinals.
+                sequence &+= 1
+                frameSequence = sequence
+                guard !isPaused else {
+                    recordUnmatchedLocked(frameSequence)
+                    return
+                }
+            }
+            guard let pixelCount = framePixelCount(width: image.width, height: image.height) else {
+                failLocked(frameCapacityMessage(width: image.width, height: image.height), token: token)
                 return
             }
             if publicationSuspended || pending.count >= maximumFrames ||
-                pixelSize.partialValue > maximumPixels - pendingPixels {
+                pixelCount > maximumPixels - pendingPixels {
                 // Preserve every accepted bridge; transient pressure must not
                 // tear down the stream or silently replace the oldest image.
-                publicationSuspended = true
-                backpressured = true
-                deferredSequence = sequence
+                deferFrameLocked(frameSequence)
                 return
             }
-            pending.append(ScrollVideoFrame(image: image, sequence: sequence, timestamp: timestamp))
-            pendingPixels += pixelSize.partialValue
+            pending.append(ScrollVideoFrame(image: image, sequence: frameSequence, timestamp: timestamp))
+            pendingPixels += pixelCount
             refreshPressureLocked()
         }
     }
@@ -118,6 +188,9 @@ final class ScrollFrameBuffer {
             backpressured = false
             publicationSuspended = false
             deferredSequence = 0
+            isPaused = false
+            preparedSequence = nil
+            preparedFrameIsValid = false
         }
     }
 
@@ -166,6 +239,9 @@ final class ScrollFrameBuffer {
             guard self.token == token else { return }
             // Late output and stop callbacks are rejected, while nextFrame can
             // continue draining the immutable images accepted before sealing.
+            if let preparedSequence { recordUnmatchedLocked(preparedSequence) }
+            preparedSequence = nil
+            preparedFrameIsValid = false
             self.token = nil
         }
     }
@@ -176,7 +252,31 @@ final class ScrollFrameBuffer {
         pendingPixels = 0
         backpressured = false
         publicationSuspended = false
+        isPaused = false
+        preparedSequence = nil
+        preparedFrameIsValid = false
         errorMessage = message
+    }
+
+    private func framePixelCount(width: Int, height: Int) -> Int? {
+        guard width > 0, height > 0 else { return nil }
+        let size = width.multipliedReportingOverflow(by: height)
+        guard !size.overflow, size.partialValue <= maximumPixels else { return nil }
+        return size.partialValue
+    }
+
+    private func frameCapacityMessage(width: Int, height: Int) -> String {
+        "单帧截图 \(width) × \(height) px 超过帧缓存安全容量，请缩小选区后重试。已有截图可保存。"
+    }
+
+    private func recordUnmatchedLocked(_ ordinal: UInt64) {
+        deferredSequence = max(deferredSequence, ordinal)
+    }
+
+    private func deferFrameLocked(_ ordinal: UInt64) {
+        publicationSuspended = true
+        backpressured = true
+        recordUnmatchedLocked(ordinal)
     }
 
     private func refreshPressureLocked() {
@@ -223,7 +323,9 @@ private final class ScrollFrameSink: NSObject, SCStreamOutput, SCStreamDelegate 
                   createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
               let status = attachments.first?[.status] as? Int,
               status == SCFrameStatus.complete.rawValue,
-              let pixels = sampleBuffer.imageBuffer else { return }
+              let pixels = sampleBuffer.imageBuffer,
+              buffer.prepareFrame(width: CVPixelBufferGetWidth(pixels),
+                                  height: CVPixelBufferGetHeight(pixels), token: token) else { return }
         autoreleasepool {
             let input = CIImage(cvPixelBuffer: pixels)
             // Render eagerly: the published immutable image must outlive the reusable IOSurface.
@@ -265,10 +367,12 @@ final class ScrollFrameSource: NSObject {
     private let buffer = ScrollFrameBuffer()
     private var session: ScrollFrameSession?
     private var stopping: Task<Void, Never>?
+    private var finalCapture: (filter: SCContentFilter, configuration: SCStreamConfiguration)?
 
     var failure: String? { buffer.failure }
     var isBackpressured: Bool { buffer.isBackpressured }
     var lastDeferredSequence: UInt64 { buffer.lastDeferredSequence }
+    var hasPendingFrames: Bool { buffer.hasPendingFrames }
 
     func latestFrame(after sequence: UInt64) -> ScrollVideoFrame? {
         buffer.latestFrame(after: sequence)
@@ -283,8 +387,30 @@ final class ScrollFrameSource: NSObject {
         buffer.discardPending(token: session.token)
     }
 
+    func setPaused(_ paused: Bool) {
+        guard let session else { return }
+        buffer.setPaused(paused, token: session.token)
+    }
+
+    /// Native streams may deliver the last changed viewport after our quiet
+    /// timer. After stopping and draining, take one fresh screenshot using
+    /// exactly the same region, resolution, and excluded overlay windows.
+    func captureFinalFrame(after sequence: UInt64) async throws -> ScrollVideoFrame {
+        guard session == nil, stopping == nil, let finalCapture else {
+            throw CaptureError.unavailableImage
+        }
+        let image = try await SCScreenshotManager.captureImage(
+            contentFilter: finalCapture.filter, configuration: finalCapture.configuration)
+        try Task.checkCancellation()
+        let ordinal = max(sequence, buffer.lastSampleSequence)
+        guard ordinal < UInt64.max else { throw CaptureError.limitReached }
+        return ScrollVideoFrame(image: image, sequence: ordinal + 1,
+            timestamp: CMTimeGetSeconds(CMClockGetTime(CMClockGetHostTimeClock())))
+    }
+
     func start(region: CaptureRegion) async throws {
         guard session == nil, stopping == nil else { throw ScrollFrameSourceError.busy }
+        finalCapture = nil
         let current = ScrollFrameSession(token: buffer.begin(), buffer: buffer)
         session = current
         let startup = Task { @MainActor in
@@ -344,7 +470,9 @@ final class ScrollFrameSource: NSObject {
         guard pixelRect.width.isFinite, pixelRect.height.isFinite,
               pixelRect.width >= 1, pixelRect.height >= 1,
               pixelRect.width <= 16_384, pixelRect.height <= 16_384,
-              pixelRect.width * pixelRect.height <= 40_000_000 else { throw CaptureError.invalidRegion }
+              pixelRect.width * pixelRect.height <= Double(ScrollFrameBuffer.defaultMaximumPixels) else {
+            throw CaptureError.invalidRegion
+        }
         try ensureCurrent(current)
         // Keep hidden windows in the inventory: panels may be ordered or moved while
         // capture starts. The same immutable window IDs remain excluded throughout it.
@@ -389,6 +517,7 @@ final class ScrollFrameSource: NSObject {
         config.showMouseClicks = false
         config.capturesAudio = false
         config.captureMicrophone = false
+        finalCapture = (filter, config)
         let stream = SCStream(filter: filter, configuration: config, delegate: current.sink)
         current.stream = stream
         try stream.addStreamOutput(current.sink, type: .screen, sampleHandlerQueue: current.sink.queue)

@@ -3,6 +3,52 @@ import Foundation
 @testable import FreeMouse
 
 struct ScrollFlowTests {
+    @Test func pausingAnAlreadyDequeuedFrameKeepsTheTailUnconfirmedThroughFinish() {
+        var flow = ScrollCaptureFlow()
+        flow.started(at: 0); flow.accepted(at: 0)
+        flow.togglePause(at: 1, hasInFlightFrame: true)
+        #expect(flow.hasUnmatchedFrame)
+        // A stale completion is ignored by the controller's revision guard;
+        // no additional native sample is required to retain this warning.
+        let finishing = flow.requestFinish(.copy)
+        #expect(finishing)
+        #expect(flow.hasUnmatchedFrame)
+        #expect(!flow.shouldScroll)
+    }
+
+    @Test func aNewVerifiedFrameCanResolveThePausedAssemblerTail() {
+        var flow = ScrollCaptureFlow()
+        flow.started(at: 0); flow.accepted(at: 0)
+        flow.togglePause(at: 1, hasInFlightFrame: true)
+        flow.togglePause(at: 2)
+        #expect(flow.hasUnmatchedFrame)
+        flow.matchedWithoutAdvance()
+        #expect(!flow.hasUnmatchedFrame)
+        #expect(flow.phase == .running)
+    }
+
+    @Test func movementDuringPauseRequiresAFreshMatchedFrame() {
+        var flow = ScrollCaptureFlow()
+        flow.started(at: 0); flow.accepted(at: 0)
+        flow.togglePause(at: 1)
+        flow.userScrolled()
+        #expect(flow.hasUnmatchedFrame)
+        flow.togglePause(at: 2)
+        #expect(flow.hasUnmatchedFrame)
+        flow.matchedWithoutAdvance()
+        #expect(!flow.hasUnmatchedFrame)
+    }
+
+    @Test func pausedInflightFrameCannotClearNewerUserMovement() {
+        var flow = ScrollCaptureFlow()
+        flow.started(at: 0); flow.accepted(at: 0)
+        flow.togglePause(at: 1)
+        flow.userScrolled()
+        flow.accepted(at: 1.1)
+        #expect(flow.hasUnmatchedFrame)
+        #expect(flow.phase == .paused)
+    }
+
     @Test func shortViewportsKeepTwentyPixelsOfOverlapAndNeverOverrunBudget() {
         #expect(ScrollMotionBudget.step(viewportHeight: 24, scale: 1, pending: 0, rate: 400, elapsed: 0.02) == 4)
         #expect(ScrollMotionBudget.step(viewportHeight: 24, scale: 1, pending: 4, rate: 400, elapsed: 0.02) == 0)

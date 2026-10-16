@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon
+import CoreMedia
 
 /// A single actor owns the mutable stitcher. No whole-image copy is made per frame.
 private actor ScrollAssembly {
@@ -8,6 +9,7 @@ private actor ScrollAssembly {
         let appended: Bool
         let width: Int
         let height: Int
+        let frameCount: Int
         let preview: CGImage?
         let hasDiagnostics: Bool
     }
@@ -25,10 +27,12 @@ private actor ScrollAssembly {
         switch result { case .appended: appended = true; case .duplicate: appended = false }
         diagnostics.recordAccepted(frame, appended: appended)
         return Update(appended: appended, width: stitcher.width, height: stitcher.totalHeight,
+                      frameCount: stitcher.frameCount,
                       preview: appended ? stitcher.preview(maxWidth: 154, maxHeight: 400) : nil,
                       hasDiagnostics: diagnostics.snapshot != nil)
     }
     func output() -> CGImage? { stitcher.image }
+    func matchesLastViewport(_ image: CGImage) throws -> Bool { try stitcher.matchesLastViewport(image) }
     func diagnosticSnapshot() -> ScrollCaptureDiagnosticSnapshot? { diagnostics.snapshot }
     func diagnosticAvailability() -> (available: Bool, reason: String?) {
         (diagnostics.snapshot != nil, diagnostics.unavailableReason)
@@ -65,7 +69,10 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
     private var sequence: UInt64 = 0
     private var lastMatchedSequence: UInt64 = 0
     private var flow = ScrollCaptureFlow()
-    private var unconsumedMotion: CGFloat = 0
+    private var pacer = ScrollAutomaticPacer()
+    private var finishSettler: ScrollFinishSettler?
+    private var processingFrame = false
+    private var captureRevision: UInt64 = 0
     private var fatalFrameError: String?
     private var startedAt: TimeInterval = 0
     private var onComplete: ((CGImage) -> Void)?
@@ -75,14 +82,15 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
     private var wheelMonitor: Any?
     private var localWheelMonitor: Any?
     private static let eventTag: Int64 = 0x46525343
-    private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
+    // SCStream presentation timestamps use the host clock too.
+    private var now: TimeInterval { CMTimeGetSeconds(CMClockGetTime(CMClockGetHostTimeClock())) }
 
     func start(region: CaptureRegion, onComplete: @escaping (CGImage) -> Void) {
         guard !isActive else { bringForward(); return }
         self.region = region; self.onComplete = onComplete
         generation = UUID(); sequence = 0; lastMatchedSequence = 0; flow = ScrollCaptureFlow()
         hasDiagnostics = false; exportingDiagnostics = false
-        unconsumedMotion = 0; fatalFrameError = nil
+        pacer.reset(); finishSettler = nil; processingFrame = false; captureRevision = 0; fatalFrameError = nil
         let source = ScrollFrameSource(), engine = ScrollAssembly()
         self.source = source; self.engine = engine
         guard let screen = NSScreen.screens.first(where: { $0.captureDisplayID == region.displayID }) else { cancel(); return }
@@ -124,8 +132,9 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
                         if !self.flow.hasImage && self.now - self.startedAt > 8 {
                             self.status.stringValue = "暂未收到屏幕画面，请检查屏幕录制权限，或取消后重试。"
                         }
-                    } else if self.flow.phase == .paused {
-                        source.discardPending()
+                    } else if self.flow.phase == .paused && !self.exportingDiagnostics,
+                              source.lastDeferredSequence > self.lastMatchedSequence {
+                        self.status.stringValue = "已暂停 · 有画面尚未确认，点继续接回后再完成"
                     }
                     if !consumedFrame { try await Task.sleep(for: .milliseconds(16)) }
                 }
@@ -143,22 +152,34 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
     func bringForward() { panel?.orderFrontRegardless() }
 
     private func consumeNext(source: ScrollFrameSource, engine: ScrollAssembly, token: UUID) async -> Bool {
-        let wasBackpressured = source.isBackpressured
         guard let frame = source.nextFrame(after: sequence) else { return false }
+        return await consume(frame, source: source, engine: engine, token: token)
+    }
+
+    private func consume(_ frame: ScrollVideoFrame, source: ScrollFrameSource, engine: ScrollAssembly, token: UUID) async -> Bool {
+        let wasBackpressured = source.isBackpressured
+        let revision = captureRevision
+        processingFrame = true
+        defer { if generation == token { processingFrame = false } }
         sequence = frame.sequence
         do {
             let update = try await engine.append(frame, lastDeferredSequence: source.lastDeferredSequence)
             guard generation == token else { return false }
+            // A pause/resume or a wheel event during pause invalidates an
+            // in-flight frame's ability to confirm the current viewport.
+            guard captureRevision == revision else { return true }
             hasDiagnostics = update.hasDiagnostics
+            finishSettler?.observed(at: now, changed: update.appended)
+            pacer.matched(frameTime: frame.timestamp, at: now, advanced: update.appended)
             if wasBackpressured || source.isBackpressured { flow.processingBacklog(at: now) }
             // Only a verified append/duplicate can close a rejected-sample
             // gap; dequeuing an old bridge or a noOverlap cannot do so.
             lastMatchedSequence = frame.sequence
             if !update.appended { flow.matchedWithoutAdvance() }
             if update.appended {
-                flow.accepted(at: now); unconsumedMotion = 0
+                flow.accepted(at: now)
                 if let image = update.preview { preview.image = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height)) }
-                sizeLabel.stringValue = "\(update.width) × \(update.height) px · 底部预览"
+                sizeLabel.stringValue = "\(update.width) × \(update.height) px · \(update.frameCount) 帧"
                 if flow.phase != .paused {
                     status.stringValue = flow.phase == .finishing ? "正在完成最后一帧…" : (source.isBackpressured ? "正在处理积压画面 · 请暂缓滚动，处理追上后可继续" : (flow.mode == .automatic ? "正在自动滚动 · 手动滚轮可接管" : "直接在选区内向下滚动 · 停住时不会结束"))
                 }
@@ -168,6 +189,9 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
             updateButtons()
         } catch CaptureError.noOverlap {
             guard generation == token else { return false }
+            guard captureRevision == revision else { return true }
+            finishSettler?.observed(at: now, changed: true)
+            pacer.rejected()
             let diagnostic = await engine.diagnosticAvailability()
             guard generation == token else { return false }
             hasDiagnostics = diagnostic.available
@@ -191,18 +215,18 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
 
     private func startMotionLoop(token: UUID) {
         motionLoop = Task { [weak self] in
-            var previous = ProcessInfo.processInfo.systemUptime
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .milliseconds(20)) } catch { break }
                 guard let self, self.generation == token else { break }
-                let time = self.now, dt = min(0.05, time - previous); previous = time
+                let time = self.now
                 guard self.flow.shouldScroll, self.fatalFrameError == nil, let region = self.region else { continue }
                 if self.source?.isBackpressured == true {
                     self.flow.processingBacklog(at: time)
                     self.status.stringValue = "正在处理积压画面 · 自动滚动稍后继续"
                     continue
                 }
-                // No more than 20% of a viewport can be sent before an accepted frame.
+                // Never advance past queued or currently-processing bridge frames.
+                guard !self.processingFrame, self.source?.hasPendingFrames == false else { continue }
                 guard AXIsProcessTrusted() else {
                     self.flow.setAutomatic(false, at: time)
                     self.status.stringValue = "辅助功能权限不可用，可继续手动滚动。"; self.updateButtons(); continue
@@ -211,15 +235,15 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
                     self.flow.setAutomatic(false, at: time)
                     self.status.stringValue = "请将控制条拖到选区外，再开启自动滚动。"; self.updateButtons(); continue
                 }
-                let rate: Double = [120, 240, 400][max(0, min(2, self.speed?.selectedSegment ?? 1))]
-                let pixels = ScrollMotionBudget.step(viewportHeight: region.rect.height, scale: region.scale, pending: self.unconsumedMotion, rate: rate, elapsed: dt)
+                let pixels = self.pacer.nextStep(at: time, viewportHeight: region.rect.height,
+                    scale: region.scale, speed: self.speed?.selectedSegment ?? 1)
                 guard pixels > 0 else { continue }
-                let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -pixels, wheel2: 0, wheel3: 0)
+                guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -pixels, wheel2: 0, wheel3: 0) else { continue }
                 let display = CGDisplayBounds(region.displayID)
-                event?.location = CGPoint(x: display.minX + point.x - self.screenFrame.minX, y: display.minY + self.screenFrame.maxY - point.y)
-                event?.setIntegerValueField(.eventSourceUserData, value: Self.eventTag)
-                event?.post(tap: .cghidEventTap)
-                self.unconsumedMotion += CGFloat(pixels)
+                event.location = CGPoint(x: display.minX + point.x - self.screenFrame.minX, y: display.minY + self.screenFrame.maxY - point.y)
+                event.setIntegerValueField(.eventSourceUserData, value: Self.eventTag)
+                self.pacer.posted(at: self.now)
+                event.post(tap: .cghidEventTap)
             }
         }
     }
@@ -231,15 +255,15 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
             status.stringValue = "自动滚动需辅助功能权限；现在可直接使用滚轮或双指手动滚动。"
             return
         }
-        if flow.phase == .paused { source?.discardPending() }
-        flow.setAutomatic(enable, at: now); unconsumedMotion = 0
-        status.stringValue = enable ? "正在自动滚动…" : "已切换手动滚动"
+        if flow.phase == .paused { captureRevision &+= 1; source?.setPaused(false) }
+        flow.setAutomatic(enable, at: now); pacer.reset()
+        status.stringValue = enable ? "正在自动滚动 · 每步确认后继续" : "已切换手动滚动"
         updateButtons()
     }
     @objc private func togglePause() {
         guard fatalFrameError == nil else { return }
-        flow.togglePause(at: now); unconsumedMotion = 0
-        source?.discardPending()
+        flow.togglePause(at: now, hasInFlightFrame: processingFrame); pacer.reset(); captureRevision &+= 1
+        source?.setPaused(flow.phase == .paused)
         status.stringValue = flow.phase == .paused ? "已暂停 · 保持页面位置，点继续后再滚动" : "继续采集 · 请缓慢向下滚动"
         updateButtons()
     }
@@ -253,8 +277,8 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
         guard hasDiagnostics, !exportingDiagnostics, flow.phase != .finishing, let engine else { return }
         let token = generation
         exportingDiagnostics = true
-        if flow.phase == .running { flow.togglePause(at: now) }
-        source?.discardPending()
+        if flow.phase == .running { flow.togglePause(at: now, hasInFlightFrame: processingFrame) }
+        captureRevision &+= 1; pacer.reset(); source?.setPaused(true)
         // The capture hotkeys must not intercept Return/Space/Escape in the
         // native directory picker. Resume only for this same capture session.
         removeInput()
@@ -284,8 +308,8 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
         guard picker.runModal() == .OK, let directory = picker.url, generation == expectedGeneration else { return }
         do {
             let folder = try snapshot.export(to: directory,
-                version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.12",
-                build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "14")
+                version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.16",
+                build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "18")
             let alert = NSAlert(); alert.messageText = "诊断已保存"
             alert.informativeText = folder.path + "\n包含 reference.png、failed.png 和 report.json。发送前请自行检查画面内容。"
             alert.addButton(withTitle: "好"); alert.runModal()
@@ -300,25 +324,85 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
         guard !exportingDiagnostics else { return }
         guard flow.hasImage else { status.stringValue = "正在等待第一帧，请稍候…"; return }
         let includeTail = flow.phase != .paused && fatalFrameError == nil
+        let verifyPausedTail = flow.phase == .paused && fatalFrameError == nil
+#if SCROLL_CAPTURE_DIAGNOSTICS
+        print("SCROLL_FINISH includeTail=\(includeTail) pausedProof=\(verifyPausedTail) phase=\(flow.phase)")
+#endif
         guard flow.requestFinish(action), let source, let engine else { return }
         let token = generation
         motionLoop?.cancel(); motionLoop = nil
         let pending = captureLoop; pending?.cancel(); captureLoop = nil
-        status.stringValue = "正在完成最后一帧…"; updateButtons()
+        finishSettler = ScrollFinishSettler(startedAt: now)
+        removeInput(); installInput(finishing: true)
+        status.stringValue = "正在等待滚动停止并接好末尾…"; updateButtons()
         finishTask = Task { [weak self] in
             await pending?.value
             guard let self, self.generation == token else { return }
-            // Let a final scroll animation settle while the persistent stream stays alive.
-            do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
-            guard self.generation == token else { return }
+            var tailTimedOut = false
+            // One consumer owns the tail. Keep draining while inertia settles,
+            // instead of filling a queue during a fixed sleep before stopping.
+            if includeTail {
+                while self.generation == token, !Task.isCancelled, self.fatalFrameError == nil {
+                    if let failure = source.failure { self.fatalFrameError = failure; break }
+                    let consumed = await self.consumeNext(source: source, engine: engine, token: token)
+                    guard self.generation == token, !Task.isCancelled else { return }
+                    let decision = self.finishSettler?.decision(at: self.now, hasPending: source.hasPendingFrames) ?? .timedOut
+                    if decision != .waiting {
+                        tailTimedOut = decision == .timedOut
+                        break
+                    }
+                    if !consumed {
+                        do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
+                    }
+                }
+            }
             if let failure = source.failure { self.fatalFrameError = failure }
             let preserveTail = includeTail && self.fatalFrameError == nil
+            // A paused/fatal stop invalidates the source buffer. Preserve its
+            // missing-tail evidence before that teardown clears the counters.
+            let deferredBeforeStop = source.lastDeferredSequence
             await source.stop(preservingPending: preserveTail)
             guard self.generation == token else { return }
             if preserveTail {
                 while await self.consumeNext(source: source, engine: engine, token: token) {
                     guard self.generation == token else { return }
                     if self.fatalFrameError != nil { break }
+                }
+                guard self.generation == token, !Task.isCancelled else { return }
+                if self.fatalFrameError == nil {
+                    self.status.stringValue = "正在核对最终画面…"
+                    do {
+                        let final = try await source.captureFinalFrame(after: self.sequence)
+                        guard self.generation == token, !Task.isCancelled else { return }
+                        _ = await self.consume(final, source: source, engine: engine, token: token)
+                    } catch is CancellationError { return }
+                    catch {
+                        guard self.generation == token else { return }
+                        self.fatalFrameError = "无法核对最终画面：" + error.localizedDescription
+                    }
+                }
+            }
+            if verifyPausedTail {
+                // A paused stream can have no delivered complete sample even
+                // after the page moved. Verify without changing the saved image.
+                do {
+                    let final = try await source.captureFinalFrame(after: self.sequence)
+                    guard self.generation == token, !Task.isCancelled else { return }
+                    let matches = try await engine.matchesLastViewport(final.image)
+#if SCROLL_CAPTURE_DIAGNOSTICS
+                    print("SCROLL_PAUSED_PROOF matches=\(matches) nativeOrdinal=\(final.sequence)")
+#endif
+                    guard self.generation == token, !Task.isCancelled else { return }
+                    if matches {
+                        self.lastMatchedSequence = final.sequence
+                        self.flow.matchedWithoutAdvance()
+                    } else {
+                        _ = self.flow.rejected(at: self.now)
+                    }
+                } catch is CancellationError { return }
+                catch {
+                    guard self.generation == token else { return }
+                    self.fatalFrameError = "无法核对暂停后的画面：" + error.localizedDescription
                 }
             }
             guard self.generation == token else { return }
@@ -327,9 +411,14 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
             let diagnostic = await engine.diagnosticSnapshot()
             guard self.generation == token else { return }
             let callback = self.onComplete, output = self.onOutput
-            let deferredTail = source.lastDeferredSequence > self.lastMatchedSequence
-            let failure = self.fatalFrameError ?? (deferredTail ? "滚动快于处理速度，末尾画面尚未确认；请检查结尾。再次采集时可停住等待处理，或回到预览位置后缓慢滚动。" : nil)
+            let deferredTail = max(deferredBeforeStop, source.lastDeferredSequence) > self.lastMatchedSequence
+            let failure = self.fatalFrameError
+                ?? (tailTimedOut ? "页面仍在变化，等待末尾稳定已超时；请检查结尾。下次可先停住滚动，再点完成。" : nil)
+                ?? (deferredTail ? "滚动快于处理速度，末尾画面尚未确认；请检查结尾。再次采集时可停住等待处理，或回到预览位置后缓慢滚动。" : nil)
             let incomplete = self.flow.hasUnmatchedFrame || failure != nil
+#if SCROLL_CAPTURE_DIAGNOSTICS
+            print("SCROLL_OUTPUT incomplete=\(incomplete) unmatched=\(self.flow.hasUnmatchedFrame)")
+#endif
             self.cancel()
             let resultGeneration = self.generation
             guard let image else { return }
@@ -344,6 +433,9 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
                     alert.addButton(withTitle: "导出诊断…")
                 }
                 let response = alert.runModal()
+#if SCROLL_CAPTURE_DIAGNOSTICS
+                print("SCROLL_WARNING_RESPONSE \(response.rawValue)")
+#endif
                 guard self.generation == resultGeneration else { return }
                 if response == .alertThirdButtonReturn, let diagnostic {
                     self.presentDiagnosticExport(diagnostic, expectedGeneration: resultGeneration)
@@ -358,6 +450,7 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
 
     func cancel() {
         generation = UUID(); flow.end()
+        pacer.reset(); finishSettler = nil
         captureLoop?.cancel(); captureLoop = nil
         motionLoop?.cancel(); motionLoop = nil
         finishTask?.cancel(); finishTask = nil
@@ -381,7 +474,7 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
     }
     func windowWillClose(_ notification: Notification) { cancel() }
 
-    private func installInput() {
+    private func installInput(finishing: Bool = false) {
         var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
             guard let event, let context else { return OSStatus(eventNotHandledErr) }
@@ -396,19 +489,24 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
         }, 1, &type, Unmanaged.passUnretained(self).toOpaque(), &eventHandler)
         var registered = Set<UInt16>()
         if eventHandler != nil {
-            for code in [kVK_Return, kVK_Space, kVK_ANSI_O, kVK_Escape] {
+            for code in (finishing ? [kVK_Escape] : [kVK_Return, kVK_Space, kVK_ANSI_O, kVK_Escape]) {
                 var reference: EventHotKeyRef?
-                if RegisterEventHotKey(UInt32(code), 0, EventHotKeyID(signature: 0x46525343, id: UInt32(code)), GetApplicationEventTarget(), 0, &reference) == noErr, let reference {
-                    hotkeys.append(reference); registered.insert(UInt16(code))
+                let modifiers = code == kVK_Escape ? UInt32(0) : ScrollShortcutPolicy.globalOutputModifiers
+                if RegisterEventHotKey(UInt32(code), modifiers, EventHotKeyID(signature: 0x46525343, id: UInt32(code)), GetApplicationEventTarget(), 0, &reference) == noErr, let reference {
+                    hotkeys.append(reference)
+                    if modifiers == 0 { registered.insert(UInt16(code)) }
                 }
             }
         }
-        // Fallback works while the control panel has focus if another app owns a key.
+        // Plain typing belongs to the target application. Unmodified output
+        // keys work only while this capture's control panel has focus.
         localKeys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
-                  [36, 49, 31, 53].contains(Int(event.keyCode)), !registered.contains(event.keyCode) else { return event }
+            guard let self, ScrollShortcutPolicy.handlesLocalOutput(modifiers: event.modifierFlags,
+                  panelHasFocus: self.panel?.isKeyWindow == true),
+                  (finishing ? [53] : [36, 49, 31, 53]).contains(Int(event.keyCode)), !registered.contains(event.keyCode) else { return event }
             self.handleKey(UInt32(event.keyCode)); return nil
         }
+        guard !finishing else { return }
         wheelMonitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] event in self?.manualWheel(event) }
         localWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in self?.manualWheel(event); return event }
     }
@@ -423,9 +521,15 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
         }
     }
     private func manualWheel(_ event: NSEvent) {
-        guard flow.shouldScroll, selection.contains(NSEvent.mouseLocation),
+        guard selection.contains(NSEvent.mouseLocation),
               event.cgEvent?.getIntegerValueField(.eventSourceUserData) != Self.eventTag else { return }
-        flow.setAutomatic(false, at: now); unconsumedMotion = 0
+        if flow.phase == .paused {
+            flow.userScrolled(); captureRevision &+= 1
+            status.stringValue = "暂停期间页面已移动 · 点继续接回后再完成，或保存已截内容"
+            return
+        }
+        guard flow.shouldScroll else { return }
+        flow.setAutomatic(false, at: now); pacer.reset()
         status.stringValue = "已由手动滚轮接管"; updateButtons()
     }
 
@@ -483,9 +587,9 @@ final class ScrollCaptureController: NSObject, NSWindowDelegate {
         autoButton = button("自动滚动", #selector(toggleAutomatic)); pauseButton = button("暂停", #selector(togglePause))
         speed = NSSegmentedControl(labels: ["慢", "中", "快"], trackingMode: .selectOne, target: nil, action: nil)
         speed?.selectedSegment = 1; speed?.toolTip = "自动滚动速度"
-        outputButtons = [button("编辑", #selector(editAction)), button("复制 ↩", #selector(copyAction)), button("保存 ␣", #selector(saveAction)), button("识字 O", #selector(recognizeAction))]
+        outputButtons = [button("完成 / 编辑", #selector(editAction)), button("复制 ↩", #selector(copyAction)), button("保存 ␣", #selector(saveAction)), button("识字 O", #selector(recognizeAction))]
         for view in [autoButton!, pauseButton!, speed!] + outputButtons + [button("取消 Esc", #selector(cancelAction))] { row.addArrangedSubview(view) }
-        let hint = NSTextField(labelWithString: "滚轮/双指直接拼接 · Return 复制 · Space 保存 · O 识字 · Esc 取消")
+        let hint = NSTextField(labelWithString: "控制条内 ↩复制 / 空格保存 / O识字 · 全局 ⌃⌥⌘ + 对应键 · Esc取消")
         hint.font = .systemFont(ofSize: 10); hint.textColor = .secondaryLabelColor
         let footer = NSStackView(); footer.orientation = .horizontal; footer.spacing = 8
         diagnosticButton = button("导出诊断…", #selector(exportDiagnosticsAction))

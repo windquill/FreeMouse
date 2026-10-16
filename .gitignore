@@ -1,5 +1,6 @@
 /.build*/
 /work/
+/outputs/
 /review-*.diff
 .DS_Store
 .env
