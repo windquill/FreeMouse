@@ -104,7 +104,7 @@ enum ValidationError: Error { case failed(String) }
             controller.cancel()
             controller.start(region: state.region) { _ in deliveries += 1 }
             try await Task.sleep(for: .milliseconds(600))
-            guard controller.isActive, controller.capturedHeight == 0, deliveries == 1 else {
+            guard controller.isActive, controller.capturedHeight > 0, deliveries == 1 else {
                 throw ValidationError.failed("Old session affected replacement session")
             }
             controller.cancel()
@@ -166,6 +166,31 @@ enum ValidationError: Error { case failed(String) }
                 throw ValidationError.failed("Stationary caret caused false incomplete-tail warning")
             }
             log("CAPSO_STATIONARY_CARET_PASS noWarning=true height=\(stillOutput!.height)")
+            let adjustable = ScrollCaptureController()
+            var resizedOutput: CGImage?
+            adjustable.start(region: state.region) { resizedOutput = $0 }
+            try await waitForHeight(adjustable, height: Int(state.height * state.scale))
+            guard let handle = NSApp.windows.first(where: { $0.identifier?.rawValue == "scroll-resize-right" && $0.isVisible }), let handleView = handle.contentView else {
+                throw ValidationError.failed("Resize handle missing")
+            }
+            func mouse(_ type: NSEvent.EventType, _ x: CGFloat) -> NSEvent {
+                NSEvent.mouseEvent(with: type, location: CGPoint(x: x, y: 7), modifierFlags: [], timestamp: 0,
+                    windowNumber: handle.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+            }
+            handleView.mouseDown(with: mouse(.leftMouseDown, 7))
+            handleView.mouseDragged(with: mouse(.leftMouseDragged, -33))
+            handleView.mouseUp(with: mouse(.leftMouseUp, 7))
+            try await waitForHeight(adjustable, height: Int(state.height * state.scale))
+            adjustable.finishCapture()
+            for _ in 0..<500 {
+                if resizedOutput != nil { break }
+                try await Task.sleep(for: .milliseconds(15))
+            }
+            guard resizedOutput?.width == Int((state.width - 40) * state.scale) else {
+                throw ValidationError.failed("Resized region did not restart automatically with new width")
+            }
+            adjustable.cancel()
+            log("CAPSO_RESIZE_AUTOSTART_PASS width=\(resizedOutput!.width)")
             log("RESULT_PASS controller=true")
         } catch {
             log("RESULT_FAIL \(error)")

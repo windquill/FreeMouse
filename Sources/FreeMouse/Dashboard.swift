@@ -6,7 +6,7 @@ struct Dashboard: View {
     @ObservedObject var recorder: Recorder
     private let accent = Color.accentColor
     private var actionsUnavailable: Bool { model.busy || recorder.isBusy || recorder.isRecording || model.scrolling }
-    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.20" }
+    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.21" }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -116,7 +116,7 @@ struct Dashboard: View {
             section("长图") {
                 actionRow("滚动长截图", detail: "选取滚动内容区，边滚动边拼接", icon: "rectangle.expand.vertical", shortcut: "⌃⌥⌘S", button: "开始") { model.capture("scroll") }
             }.disabled(actionsUnavailable)
-            Text("长截图：点击开始采集，缓慢向下滚动，点击完成后编辑、复制或保存。").font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, -12)
+            Text("长截图框选后自动采集；拖动边角调整区域，点击结束截图后编辑或保存。").font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, -12)
             section("图片处理") {
                 actionRow("图片编辑", detail: "箭头、方框、文字、遮挡与 OCR", icon: "pencil.and.outline") { model.openImages() }
                 Divider().padding(.leading, 50)

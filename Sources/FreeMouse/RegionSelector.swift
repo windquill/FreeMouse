@@ -131,7 +131,9 @@ private final class SelectionView: NSView {
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .crosshair)
         if let selection {
-            addCursorRect(selection.insetBy(dx: 8, dy: 8), cursor: .openHand)
+            if selection.width > 16, selection.height > 16 {
+                addCursorRect(selection.insetBy(dx: 8, dy: 8), cursor: .openHand)
+            }
             for h in SelectionHandle.allCases {
                 let p = h.point(in: selection)
                 let cursor: NSCursor = (h == .left || h == .right) ? .resizeLeftRight : .resizeUpDown
@@ -199,7 +201,8 @@ private final class SelectionView: NSView {
             resetSelection()
             return
         }
-        showToolbar(for: selection)
+        if showsActions { showToolbar(for: selection) }
+        else { onComplete?(selection, false, .edit) }
         needsDisplay = true
     }
     override func keyDown(with event: NSEvent) {

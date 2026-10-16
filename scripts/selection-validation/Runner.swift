@@ -26,6 +26,11 @@ import AppKit
             view.mouseDragged(with: event(.leftMouseDragged, b))
             view.mouseUp(with: event(.leftMouseUp, b))
         }
+        drag(CGPoint(x: 100, y: 100), CGPoint(x: 104, y: 104))
+        view.resetCursorRects()
+        window.invalidateCursorRects(for: view)
+        print("SMALL_SELECTION_CURSOR_PASS")
+        drag(CGPoint(x: 400, y: 400), CGPoint(x: 600, y: 550))
         drag(CGPoint(x: 100, y: 100), CGPoint(x: 300, y: 250))
         drag(CGPoint(x: 200, y: 175), CGPoint(x: 240, y: 205))
         drag(CGPoint(x: 340, y: 205), CGPoint(x: 400, y: 205))

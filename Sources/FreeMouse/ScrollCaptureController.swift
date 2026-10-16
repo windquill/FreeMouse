@@ -27,7 +27,20 @@ final class ScrollCaptureController: NSObject {
         let selection = CGRect(x: region.rect.minX, y: screen.frame.height - region.rect.maxY,
                                width: region.rect.width, height: region.rect.height)
         overlay.show(selectionRect: selection, screen: screen)
+        overlay.onResizeBegin = { [weak self] in
+            guard let self else { return }
+            self.generation = UUID()
+            self.backend?.cancel(); self.backend = nil
+            self.capturedHeight = 0; self.finishing = false
+        }
+        overlay.onResize = { [weak self, weak screen] rect in
+            guard let self, let screen else { return }
+            self.region = CaptureRegion.from(selection: rect,
+                screenFrame: screen.frame, displayID: region.displayID, scale: region.scale)
+            self.beginCapture()
+        }
         onActivityChange?(true)
+        beginCapture()
     }
 
     func beginCapture() {

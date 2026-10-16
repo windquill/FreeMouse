@@ -11,6 +11,11 @@ extension CapsoScrolling {
 @MainActor
 final class ScrollCaptureOverlay {
     private var borderWindow: NSPanel?
+    private var handleWindows: [NSPanel] = []
+    private var selectionRect = CGRect.zero
+    private weak var screen: NSScreen?
+    var onResizeBegin: (() -> Void)?
+    var onResize: ((CGRect) -> Void)?
     private var controlsWindow: NSPanel?
     private var previewWindow: NSPanel?
     private let viewModel = ScrollCaptureViewModel()
@@ -32,7 +37,10 @@ final class ScrollCaptureOverlay {
             height: selectionRect.height
         )
 
+        self.screen = screen
+        self.selectionRect = screenRect
         showBorder(screenRect: screenRect)
+        showHandles()
         showControls(screenRect: screenRect, screen: screen)
         showPreview(screenRect: screenRect, screen: screen)
         installKeyHandlers()
@@ -53,6 +61,8 @@ final class ScrollCaptureOverlay {
     }
 
     func close() {
+        for panel in handleWindows { panel.orderOut(nil) }
+        handleWindows.removeAll()
         if let localKeyMonitor {
             NSEvent.removeMonitor(localKeyMonitor)
             self.localKeyMonitor = nil
@@ -83,6 +93,7 @@ final class ScrollCaptureOverlay {
         if let w = borderWindow, let id = CGWindowID(exactly: w.windowNumber) { ids.append(id) }
         if let w = controlsWindow, let id = CGWindowID(exactly: w.windowNumber) { ids.append(id) }
         if let w = previewWindow, let id = CGWindowID(exactly: w.windowNumber) { ids.append(id) }
+        ids += handleWindows.compactMap { CGWindowID(exactly: $0.windowNumber) }
         return ids
     }
 
@@ -185,6 +196,61 @@ final class ScrollCaptureOverlay {
         panel.orderFrontRegardless()
     }
 
+    private func showHandles() {
+        for handle in SelectionHandle.allCases {
+            let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            panel.level = .floating; panel.isOpaque = false
+            panel.backgroundColor = .clear; panel.hasShadow = false
+            panel.hidesOnDeactivate = false
+            let view = ScrollResizeHandle(frame: CGRect(x: 0, y: 0, width: 14, height: 14))
+            panel.identifier = NSUserInterfaceItemIdentifier("scroll-resize-\(handle)")
+            var initial = CGRect.zero
+            var start = CGPoint.zero
+            var changed = false
+            view.onDown = { [weak self] pointer in
+                guard let self else { return }
+                initial = self.selectionRect; start = pointer; changed = false
+            }
+            view.onDrag = { [weak self] pointer in
+                guard let self, let screen = self.screen else { return }
+                let edge = handle.point(in: initial)
+                guard pointer != start || changed else { return }
+                let revised = SelectionGeometry.resized(initial, handle: handle,
+                    point: CGPoint(x: edge.x + pointer.x - start.x, y: edge.y + pointer.y - start.y), bounds: screen.frame)
+                guard revised != self.selectionRect else { return }
+                if !changed { changed = true; self.onResizeBegin?() }
+                self.selectionRect = revised
+                self.reposition()
+            }
+            view.onUp = { [weak self] in
+                guard let self, changed else { return }
+                self.viewModel.previewImage = nil; self.viewModel.currentHeight = 0
+                self.viewModel.frameCount = 0; self.viewModel.issue = "区域已调整，正在重新采集"
+                if self.previewWindow == nil, let screen = self.screen {
+                    self.showPreview(screenRect: self.selectionRect, screen: screen)
+                }
+                self.onResize?(self.selectionRect)
+            }
+            panel.contentView = view; handleWindows.append(panel)
+        }
+        reposition()
+        for panel in handleWindows { panel.orderFrontRegardless() }
+    }
+
+    private func reposition() {
+        borderWindow?.setFrame(selectionRect.insetBy(dx: -3, dy: -3), display: true)
+        for (handle, panel) in zip(SelectionHandle.allCases, handleWindows) {
+            let p = handle.point(in: selectionRect)
+            panel.setFrame(CGRect(x: p.x - 7, y: p.y - 7, width: 14, height: 14), display: true)
+        }
+        guard let screen else { return }
+        controlsWindow?.setFrame(ScrollCaptureOverlayPlacement.controlsFrame(selectionRect: selectionRect, visibleFrame: screen.visibleFrame), display: true)
+        if let rect = ScrollCaptureOverlayPlacement.previewFrame(selectionRect: selectionRect, visibleFrame: screen.visibleFrame) {
+            previewWindow?.setFrame(rect, display: true)
+            previewWindow?.orderFrontRegardless()
+        } else { previewWindow?.orderOut(nil) }
+    }
+
     // MARK: - Controls
 
     private func showControls(screenRect: NSRect, screen: NSScreen) {
@@ -246,6 +312,23 @@ final class ScrollCaptureOverlay {
     }
 }
 
+final class ScrollResizeHandle: NSView {
+    var onDown: ((CGPoint) -> Void)?
+    var onDrag: ((CGPoint) -> Void)?
+    var onUp: (() -> Void)?
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) { if let point = window?.convertPoint(toScreen: event.locationInWindow) { onDown?(point) } }
+    override func mouseDragged(with event: NSEvent) { if let point = window?.convertPoint(toScreen: event.locationInWindow) { onDrag?(point) } }
+    override func mouseUp(with event: NSEvent) { onUp?() }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeUpDown) }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.black.withAlphaComponent(0.01).setFill(); bounds.fill()
+        NSColor.white.setFill(); bounds.insetBy(dx: 3, dy: 3).fill()
+        NSColor.systemBlue.setStroke()
+        NSBezierPath(rect: bounds.insetBy(dx: 3, dy: 3)).stroke()
+    }
+}
+
 // MARK: - Border View
 
 final class ScrollCaptureBorderView: NSView {
@@ -290,7 +373,7 @@ final class ScrollCaptureViewModel {
     var statusText: String {
         if let issue { return issue }
         if !isCapturing {
-            return String(localized: "点击开始，再向下滚动")
+            return String(localized: "正在采集，可拖动边角调整区域")
         }
         if frameCount == 0 {
             return String(localized: "缓慢滚动以采集")
@@ -316,21 +399,10 @@ struct ScrollCaptureControlsView: View {
                 action: onCancel
             )
 
-            if viewModel.isCapturing {
-                controlButton(
-                    icon: "checkmark",
-                    label: String(localized: "完成"),
-                    color: Color.accentColor,
-                    action: onDone
-                )
-            } else {
-                controlButton(
-                    icon: "play.fill",
-                    label: String(localized: "开始采集"),
-                    color: Color.green,
-                    action: onStart
-                )
-            }
+            controlButton(
+                icon: "checkmark", label: String(localized: "结束截图"),
+                color: Color.accentColor, action: onDone
+            )
         }
         .padding(8)
         .background(.ultraThinMaterial)
