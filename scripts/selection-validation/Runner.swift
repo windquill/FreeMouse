@@ -17,6 +17,8 @@ import AppKit
         try await Task.sleep(for: .milliseconds(200))
         guard let window = NSApp.windows.first(where: { String(describing: type(of: $0.contentView!)).contains("SelectionView") }),
               let view = window.contentView, let screen = window.screen, let id = screen.captureDisplayID else { throw NSError(domain: "selection window", code: 1) }
+        guard view.acceptsFirstMouse(for: nil) else { throw NSError(domain: "First click must start selection", code: 6) }
+        print("FIRST_MOUSE_ACCEPTED_PASS")
         func event(_ type: NSEvent.EventType, _ p: CGPoint) -> NSEvent {
             NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: 0,
                 windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!

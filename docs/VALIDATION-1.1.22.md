@@ -1,0 +1,7 @@
+# 1.1.22 build24
+
+用户确认：蒙层已出现，首次点击或拖动无效，第二次才可框选。SelectionView可成为first responder，但没有覆写acceptsFirstMouse；AppKit在非活动窗口激活时可能吞掉首个mouseDown。现明确返回true，不改变拖动、缩放或输出规则。
+
+原生验证新增acceptsFirstMouse契约检查，并保留小选区指针刷新、框选移动/缩放、点击不重选和最终坐标验证。该检查直接操作NSView，不是全局物理鼠标注入测试。未修改已安装应用或系统权限。
+
+原生验证通过：FIRST_MOUSE_ACCEPTED_PASS、SMALL_SELECTION_CURSOR_PASS和RESULT_PASS均通过。

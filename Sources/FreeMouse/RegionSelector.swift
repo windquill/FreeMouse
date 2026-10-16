@@ -120,6 +120,7 @@ private final class SelectionView: NSView {
     private let visibleBounds: CGRect
     private var toolbar: NSVisualEffectView?
     override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     init(frame: CGRect, showsActions: Bool, visibleBounds: CGRect) {
         self.showsActions = showsActions
