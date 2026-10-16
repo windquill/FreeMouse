@@ -67,10 +67,7 @@ def validate(target, runner, result_name):
 
 if __name__ == '__main__':
     target = compile_program('Target', [])
-    base = ['CaptureTypes.swift', 'ScrollFrameSource.swift', 'ScrollStitcher.swift']
-    runner = compile_program('Runner', base)
-    controller = compile_program('ControllerRunner', base + [
-        'ScrollCaptureDiagnostics.swift', 'ScrollCaptureFlow.swift',
-        'ScrollCaptureTiming.swift', 'ScrollCaptureShortcuts.swift', 'ScrollCaptureController.swift'])
-    validate(target, runner, 'result.log')
+    sources = ['CaptureTypes.swift', 'ScrollCaptureFlow.swift', 'ScrollCaptureController.swift']
+    sources += [str(p.relative_to(SOURCES)) for p in sorted((SOURCES / 'CapsoScrolling').glob('*.swift'))]
+    controller = compile_program('ControllerRunner', sources)
     validate(target, controller, 'controller-result.log')

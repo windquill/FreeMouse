@@ -6,16 +6,16 @@ ROOT=Path(__file__).resolve().parents[1]
 WORK=ROOT/'.build'
 OUTPUT=ROOT/'outputs'
 OUTPUT.mkdir(exist_ok=True)
-STAGE=WORK/'dmg-stage-1.1.16'
-APP=WORK/'release-1.1.16/自在工具箱.app'
-raw=WORK/'FreeMouse-1.1.16.raw.dmg'
-final=OUTPUT/'自在工具箱-1.1.16-AppleSilicon.dmg'
-source=OUTPUT/'FreeMouse-1.1.16-Source.zip'
-checks_path=OUTPUT/'SHA256SUMS-1.1.16.txt'
-usage=OUTPUT/'自在工具箱-1.1.16-使用说明.txt'
+STAGE=WORK/'dmg-stage-1.1.17'
+APP=WORK/'release-1.1.17/自在工具箱.app'
+raw=WORK/'FreeMouse-1.1.17.raw.dmg'
+final=OUTPUT/'自在工具箱-1.1.17-AppleSilicon.dmg'
+source=OUTPUT/'FreeMouse-1.1.17-Source.zip'
+checks_path=OUTPUT/'SHA256SUMS-1.1.17.txt'
+usage=OUTPUT/'自在工具箱-1.1.17-使用说明.txt'
 for p in [STAGE,raw,final,source,checks_path,usage]:
  if p.exists(): raise SystemExit(f'Refusing to overwrite {p}')
-for name in ['功能对照-1.1.16.txt','更新说明-1.1.16.txt','验证记录-1.1.16.txt']:
+for name in ['功能对照-1.1.17.txt','更新说明-1.1.17.txt','验证记录-1.1.17.txt']:
  if not (OUTPUT/name).is_file(): raise SystemExit(f'Missing release document: {name}')
 STAGE.mkdir()
 shutil.copytree(APP,STAGE/APP.name)
@@ -23,15 +23,17 @@ link=STAGE/'应用程序'
 if not link.exists(): link.symlink_to('/Applications',target_is_directory=True)
 shutil.copy2(ROOT/'README.md',STAGE/'安装与使用说明.txt')
 shutil.copy2(ROOT/'LICENSE',STAGE/'LICENSE.txt')
+shutil.copy2(ROOT/'THIRD_PARTY_NOTICES.md',STAGE/'THIRD_PARTY_NOTICES.md')
+shutil.copy2(ROOT/'ThirdParty/Capso/LICENSE',STAGE/'Capso-LICENSE.txt')
 shutil.copy2(ROOT/'README.md',usage)
-shutil.copy2(OUTPUT/'验证记录-1.1.16.txt',STAGE/'验证记录.txt')
-shutil.copy2(OUTPUT/'功能对照-1.1.16.txt',STAGE/'功能对照-1.1.16.txt')
-shutil.copy2(OUTPUT/'更新说明-1.1.16.txt',STAGE/'更新说明-1.1.16.txt')
+shutil.copy2(OUTPUT/'验证记录-1.1.17.txt',STAGE/'验证记录.txt')
+shutil.copy2(OUTPUT/'功能对照-1.1.17.txt',STAGE/'功能对照-1.1.17.txt')
+shutil.copy2(OUTPUT/'更新说明-1.1.17.txt',STAGE/'更新说明-1.1.17.txt')
 subprocess.run(['hdiutil','makehybrid','-hfs','-hfs-volume-name','自在工具箱','-o',str(raw),str(STAGE)],check=True)
 subprocess.run(['hdiutil','convert',str(raw),'-format','UDZO','-o',str(final)],check=True)
 # Source-only archive. Build caches, user state, reference DMG are never included.
 with zipfile.ZipFile(source,'x',zipfile.ZIP_DEFLATED) as archive:
- for item in ['Package.swift','README.md','LICENSE','.gitignore','Sources','Tests','FinderExtension','scripts','docs']:
+ for item in ['Package.swift','README.md','LICENSE','.gitignore','Sources','Tests','FinderExtension','scripts','docs','ThirdParty','THIRD_PARTY_NOTICES.md']:
   path=ROOT/item
   if path.is_dir():
    for f in sorted(path.rglob('*')):

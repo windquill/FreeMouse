@@ -134,7 +134,7 @@ final class AppModel: ObservableObject {
                     if let region {
                         if wantsScroll {
                             scroll.start(region: region) { [weak self] image in self?.edit(image) }
-                            status = "长截图进行中：在选区内直接滚动，Return 复制，Space 保存"
+                            status = "长截图：点击开始采集，向下滚动，再点击完成"
                         } else { finishScroll(try await captureService.capture(region: region), action: output) }
                     } else { status = "已取消截图"; showWindow() }
                 }

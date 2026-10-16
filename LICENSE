@@ -1,3 +1,5 @@
+FreeMouse original code uses the MIT license below. Capso-derived scrolling capture uses BSL 1.1; see THIRD_PARTY_NOTICES.md and ThirdParty/Capso/LICENSE. These third-party terms apply to distributions containing that component.
+
 MIT License
 
 Copyright (c) 2026 FreeMouse contributors

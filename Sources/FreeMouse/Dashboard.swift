@@ -6,7 +6,7 @@ struct Dashboard: View {
     @ObservedObject var recorder: Recorder
     private let accent = Color.accentColor
     private var actionsUnavailable: Bool { model.busy || recorder.isBusy || recorder.isRecording || model.scrolling }
-    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.16" }
+    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.17" }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -116,7 +116,7 @@ struct Dashboard: View {
             section("长图") {
                 actionRow("滚动长截图", detail: "选取滚动内容区，边滚动边拼接", icon: "rectangle.expand.vertical", shortcut: "⌃⌥⌘S", button: "开始") { model.capture("scroll") }
             }.disabled(actionsUnavailable)
-            Text("长截图尽量避开固定标题栏和侧栏。Return 复制，Space 保存，O 识别文字。").font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, -12)
+            Text("长截图：点击开始采集，缓慢向下滚动，点击完成后编辑、复制或保存。").font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, -12)
             section("图片处理") {
                 actionRow("图片编辑", detail: "箭头、方框、文字、遮挡与 OCR", icon: "pencil.and.outline") { model.openImages() }
                 Divider().padding(.leading, 50)
@@ -242,7 +242,7 @@ struct Dashboard: View {
             section("系统权限") {
                 permissionRow("屏幕与系统音频录制", detail: "截图、长截图和录屏需要", granted: model.screenAllowed) { model.requestScreen() }
                 Divider().padding(.leading, 14)
-                permissionRow("辅助功能", detail: "自动滚动与独立鼠标菜单需要", granted: model.accessibilityAllowed) { model.requestAccessibility() }
+                permissionRow("辅助功能", detail: "独立鼠标菜单需要", granted: model.accessibilityAllowed) { model.requestAccessibility() }
                 Divider().padding(.leading, 14)
                 preferenceRow("麦克风", detail: "在录屏中开启麦克风时按需申请") { Button("系统设置") { model.openSettings("Privacy_Microphone") } }
                 Divider()
