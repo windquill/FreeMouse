@@ -1,0 +1,24 @@
+自在工具箱 1.1.0 验证记录（2026-10-14）
+
+源码：work/FreeMouse；产物：Apple Silicon / macOS 15+。
+
+已完成：
+- SwiftPM最终整套测试：67项、9套，全部通过。包括原有截图/拼接、编辑、文件、录屏状态测试，及新连续帧缓冲、流程/布局、221帧小步拼接、反向滚动、预览、文件事务/剪切恢复/同路径替换、模板/格式/图标组回归。
+- 主应用与Finder扩展Release编译通过；codesign --verify --deep --strict通过，本地ad-hoc签名。
+- 独立审查发现并修复：200帧早停、小选区自动滚动越预算、剪切后同路径替换误移动、忙碌时退出、旧图片贴图、鼠标监听未拦截原事件。
+- DOCX/XLSX/PPTX通过ZIP CRC；python-docx/openpyxl/python-pptx独立解析成功。
+- 截图拼接Release基准（5轮中位数、确定性合成图；排除输入生成/真实采集）：
+  1440x900首帧后append：1.867ms -> 0.589ms；后期1.513ms -> 0.543ms；缩略图0.283ms。
+  2880x1800首帧后append：5.056ms -> 2.363ms；后期4.875ms -> 1.829ms；缩略图0.326ms。
+  主要体验改动是持续采集、120ms消费、小步滚动与取消面板闪现；基准不等于实机端到端延迟。
+
+尚未验证/限制：
+- 未获真实UI和媒体采集的验收证据。不宣称“已确保丝滑”或“全部与原版1:1”。
+- Finder扩展启用、屏幕录制/辅助功能/自动化授权、系统分享、登录启动和外部应用需真实系统环境测试。
+- HEIC编码在此shell沙箱受限；CoreImage QR的默认与软件渲染均未取得CGImage。异常路径会报告失败；没有伪造输出或宣称通过。
+- 无Apple开发者证书和公证。没有关闭系统安全保护。
+
+测试命令（cwd为源码根目录）：
+env CLANG_MODULE_CACHE_PATH=.build-root/clang-module-cache swift test --disable-sandbox --disable-xctest --scratch-path .build-root --cache-path .build-root/spm-cache -Xswiftc -load-plugin-library -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib
+
+安装包归档和二进制一致性校验另见随附《安装包校验-1.1.0.txt》及SHA256SUMS-1.1.0.txt。

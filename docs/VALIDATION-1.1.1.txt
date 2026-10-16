@@ -1,0 +1,18 @@
+自在工具箱 1.1.1 验证记录（2026-10-14）
+
+最终源码整套SwiftPM测试：76 tests / 12 suites passed，12.370秒。
+Release主应用+Finder扩展编译成功（Apple Silicon / macOS15+）；codesign --verify --deep --strict通过，版本1.1.1 / build3。
+
+主要新增验证：
+- 当前/旧实例/ownerless窗口排除策略3项回归，帧缓冲与取消生命周期旧测试保留。
+- 固定及变高底部白卡，重叠区先红后绿，旧污染150行→清晰区域0行；真实文本连续多接缝逐像素正确。
+- 正向40/80px稀疏文字，避免错误reverse；无重叠重复模板拒绝并保持旧图。
+- 2/6px窄内容原误duplicate/noOverlap，现正确40px拼接，独立Release复验通过。
+- 原67项文件、模板、编辑、录屏、捕获回归全部保留并通过。
+
+76项日志：work/final-1.1.1-tests.log。
+Release日志：work/release-1.1.1-build.log。
+详细根因与压力测试限制见长截图修复说明-1.1.1.txt。真实OS浮层排除/权限/连续滚动效果仍需实机验收，未声称全部页面每帧成功。
+
+使用与前版相同的绝对模块缓存、scratch路径、--disable-sandbox、--disable-xctest，以及CLT TestingMacros显式加载执行。
+DMG CRC、源代码ZIP一致性、封装程序字节检查另见安装包校验-1.1.1.txt及SHA256SUMS-1.1.1.txt。
