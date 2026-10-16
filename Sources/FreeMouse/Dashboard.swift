@@ -6,7 +6,7 @@ struct Dashboard: View {
     @ObservedObject var recorder: Recorder
     private let accent = Color.accentColor
     private var actionsUnavailable: Bool { model.busy || recorder.isBusy || recorder.isRecording || model.scrolling }
-    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.17" }
+    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.18" }
 
     var body: some View {
         HStack(spacing: 0) {

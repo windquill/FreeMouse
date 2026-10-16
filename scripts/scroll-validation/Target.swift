@@ -5,10 +5,12 @@ import Foundation
 struct TargetCommand: Codable {
     let sequence: Int
     let offset: Double
+    let caret: Bool?
     let quit: Bool
 }
 
 @MainActor final class SyntheticDocument: NSView {
+    var caretY: CGFloat?
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
@@ -37,6 +39,10 @@ struct TargetCommand: Codable {
                 NSRect(x: bounds.width - 105 + CGFloat(block * 19), y: y + 1,
                        width: 8 + CGFloat(value % 9), height: 7 + CGFloat((value >> 8) % 13)).fill()
             }
+        }
+        if let caretY {
+            NSColor.black.setFill()
+            NSRect(x: 495, y: caretY, width: 1, height: 12).fill()
         }
     }
 }
@@ -107,6 +113,10 @@ struct TargetCommand: Codable {
             return
         }
         scroll.contentView.scroll(to: NSPoint(x: 0, y: command.offset))
+        if let document = scroll.documentView as? SyntheticDocument {
+            document.caretY = command.caret == true ? command.offset + 100 : nil
+            document.needsDisplay = true
+        }
         scroll.reflectScrolledClipView(scroll.contentView)
         window.displayIfNeeded()
         publish(sequence: command.sequence)

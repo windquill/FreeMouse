@@ -139,19 +139,20 @@ public final class ScrollCaptureController: @unchecked Sendable {
                 continue
             }
 
-            if fixedRegions == nil {
-                let regions = FixedRegions.detect(frame1: shotA!, frame2: shotB)
-                fixedRegions = regions
-                stitcher.setFooterHeight(regions.footer)
+            let regions = fixedRegions ?? FixedRegions.detect(frame1: shotA!, frame2: shotB)
+            let offset = Self.verticalOffset(from: shotA!, to: shotB, ignoring: regions)
+            if Self.isStationaryViewport(from: shotA!, to: shotB, offset: offset) {
+                // Approximate agreement must not erase a previously unconfirmed gap.
+                continue
             }
-
-#if SCROLL_CAPTURE_DIAGNOSTICS
-            print("CAPSO_REGIONS \(String(describing: fixedRegions)) offset=\(String(describing: fixedRegions.flatMap { Self.verticalOffset(from: shotA!, to: shotB, ignoring: $0) }))")
-#endif
-            guard let offset = fixedRegions.flatMap({ Self.verticalOffset(from: shotA!, to: shotB, ignoring: $0) }),
-                  offset >= 3 else {
+            guard let offset, offset >= 3 else {
                 reportIssue("这一段尚未接上，请向上滚回预览位置，再缓慢下滚。")
                 continue
+            }
+            // Only learn sticky regions from an actual scroll, not a blinking caret.
+            if fixedRegions == nil {
+                fixedRegions = regions
+                stitcher.setFooterHeight(regions.footer)
             }
 
             if case .stitched = stitcher.stitch(newFrame: shotB, detectedOffset: offset) {
@@ -169,6 +170,38 @@ public final class ScrollCaptureController: @unchecked Sendable {
         } while !finishingPass
 
         return stitcher.mergedImage
+    }
+
+    /// Registration can invent a large displacement for a blinking caret on
+    /// repeated text. Require strict RGB agreement to recognize the same viewport.
+    static func isStationaryViewport(from earlier: CGImage, to later: CGImage, offset: Int?) -> Bool {
+        guard offset != nil,
+              earlier.width == later.width, earlier.height == later.height,
+              earlier.width > 0, earlier.height > 0 else { return false }
+        let (count, overflow) = earlier.width.multipliedReportingOverflow(by: earlier.height)
+        guard !overflow, count <= Int.max / 4 else { return false }
+        func pixels(_ image: CGImage) -> [UInt8]? {
+            var bytes = [UInt8](repeating: 0, count: count * 4)
+            let rendered = bytes.withUnsafeMutableBytes { buffer -> Bool in
+                guard let context = CGContext(data: buffer.baseAddress,
+                    width: image.width, height: image.height, bitsPerComponent: 8,
+                    bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+                context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+                return true
+            }
+            return rendered ? bytes : nil
+        }
+        guard let a = pixels(earlier), let b = pixels(later) else { return false }
+        var changed = 0
+        let budget = min(64, count / 2000) // Small caret only; never scale allowance to whole text lines.
+        for i in stride(from: 0, to: a.count, by: 4) {
+            if (0..<3).contains(where: { abs(Int(a[i + $0]) - Int(b[i + $0])) > 8 }) {
+                changed += 1
+                if changed > budget { return false }
+            }
+        }
+        return true
     }
 
     // MARK: - Frame Capture

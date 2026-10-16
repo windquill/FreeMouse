@@ -1,4 +1,4 @@
-# 自在工具箱 FreeMouse 1.1.17
+# 自在工具箱 FreeMouse 1.1.18
 
 macOS 本地工具，提供截图、连续长截图、标注/OCR、录屏和右键文件操作。媒体处理在本机完成；只有主动选择 Google/百度翻译时，文字才会发送到所选网站。
 
@@ -9,6 +9,10 @@ Apple Silicon，macOS 15 或更新版本。打开 DMG，把「自在工具箱.ap
 本版本使用本地 ad-hoc 签名，没有 Apple 开发者证书或公证。如果 macOS 阻止打开，先尝试打开一次，再到「系统设置 → 隐私与安全性」选择「仍要打开」。无需关闭 Gatekeeper/SIP，也不需要终端删除隔离属性。
 
 截图、长截图和录屏需「屏幕与系统音频录制」授权；更新应用后如系统重新询问，请按实际需要授权。麦克风在启用录屏麦克风时申请。独立鼠标菜单需辅助功能权限；手动长截图不需要辅助功能。终端及云目录选区读取会请求自动化权限。
+
+## 1.1.18 修复静止画面的末尾误报
+
+修复停住后光标闪烁等微小画面变化被统一当作拼接失败的问题。只有几乎全部像素一致，才确认页面未继续移动，避免 Vision 对重复文字的错误位移影响判断；不增加截图高度。固定栏检测只在真正向下滚动后生效，避免最初的光标变化被学成固定栏。真正无法读取、无法匹配或失去重叠的末尾仍会提示。
 
 ## 1.1.17 直接接入 Capso 长截图
 
@@ -180,7 +184,7 @@ Finder 右键“设置右键菜单…”打开同一设置界面。隐藏全部�
 
 ## 源代码
 
-原有 FreeMouse 代码使用 MIT，导入的 Capso 长截图代码使用 BSL 1.1，完整条款见第三方声明。源码内运行 `/usr/bin/python3 scripts/build.py`，结果位于源码旁 `.build/release-1.1.17/自在工具箱.app`。需macOS Command Line Tools；为保留构建，已有同名构建目录时脚本会停止。
+原有 FreeMouse 代码使用 MIT，导入的 Capso 长截图代码使用 BSL 1.1，完整条款见第三方声明。源码内运行 `/usr/bin/python3 scripts/build.py`，结果位于源码旁 `.build/release-1.1.18/自在工具箱.app`。需macOS Command Line Tools；为保留构建，已有同名构建目录时脚本会停止。
 
 Swift6.4/本机CLT测试需 `swift test --disable-sandbox --disable-xctest` 并显式加载 `/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib`。缓存和scratch路径应统一使用绝对路径；完整已执行参数记于验证记录。
 

@@ -135,6 +135,36 @@ enum ValidationError: Error { case failed(String) }
                 throw ValidationError.failed("Missing unmatched-tail warning or cancelled output delivered")
             }
             log("CAPSO_UNMATCHED_TAIL_PASS warning=true cancelled=true")
+            let still = ScrollCaptureController()
+            var stillOutput: CGImage?
+            still.start(region: state.region) { stillOutput = $0 }
+            still.beginCapture()
+            try await waitForHeight(still, height: Int(state.height * state.scale))
+            let caretData = try JSONSerialization.data(withJSONObject: ["sequence": 300, "offset": origin + 5000, "quit": false, "caret": true])
+            try caretData.write(to: directory.appendingPathComponent("command.json"), options: .atomic)
+            _ = try await awaitState(directory, sequence: 300)
+            try await Task.sleep(for: .milliseconds(400))
+            var unexpectedWarning = false
+            let alertCloser = Timer(timeInterval: 0.05, repeats: true) { _ in
+                MainActor.assumeIsolated {
+                    if let modal = NSApp.modalWindow, let content = modal.contentView,
+                       let cancel = views(content).compactMap({ $0 as? NSButton }).first(where: { $0.title == "取消" }) {
+                        unexpectedWarning = true; cancel.performClick(nil)
+                    }
+                }
+            }
+            RunLoop.main.add(alertCloser, forMode: .common)
+            RunLoop.main.add(alertCloser, forMode: .modalPanel)
+            still.finishCapture()
+            for _ in 0..<500 {
+                if stillOutput != nil || unexpectedWarning { break }
+                try await Task.sleep(for: .milliseconds(15))
+            }
+            alertCloser.invalidate(); still.cancel()
+            guard !unexpectedWarning, stillOutput?.height == Int(state.height * state.scale) else {
+                throw ValidationError.failed("Stationary caret caused false incomplete-tail warning")
+            }
+            log("CAPSO_STATIONARY_CARET_PASS noWarning=true height=\(stillOutput!.height)")
             log("RESULT_PASS controller=true")
         } catch {
             log("RESULT_FAIL \(error)")
