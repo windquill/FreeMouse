@@ -24,6 +24,32 @@ import Testing
         #expect(s.set(nil, for: .region))
         #expect(ShortcutSettings(preferences: defaults).bindings[.region] == nil)
     }
+    @Test func ocrBindingPersistsAndCanBeCleared() throws {
+        let action = try #require(ShortcutAction(rawValue: "ocr"))
+        let (s, preferences) = settings()
+        #expect(s.bindings[action] == nil)
+        let key = KeyboardShortcut(keyCode: 31, modifiers: UInt32(cmdKey | optionKey))
+        #expect(s.set(key, for: action))
+        #expect(s.registry.active[action] == key)
+        #expect(ShortcutSettings(preferences: preferences).bindings[action] == key)
+        #expect(!s.set(KeyboardShortcut.defaults[.region], for: action))
+        #expect(s.bindings[action] == key)
+        #expect(s.set(nil, for: action))
+        #expect(ShortcutSettings(preferences: preferences).bindings[action] == nil)
+    }
+
+    @Test func existingPreferencesAndHotKeyIDsSurviveOCRAddition() throws {
+        let preferences = MemoryPreferences()
+        preferences.values["keyboardShortcuts.v1"] = try JSONEncoder().encode([
+            "region": KeyboardShortcut(keyCode: 3, modifiers: UInt32(cmdKey | shiftKey))
+        ])
+        let s = ShortcutSettings(preferences: preferences)
+        let action = try #require(ShortcutAction(rawValue: "ocr"))
+        #expect(s.bindings[.region]?.keyCode == 3)
+        #expect(s.bindings[action] == nil)
+        #expect([ShortcutAction.region, .scroll, .full, .window, .record].map(\.hotKeyID) == [1, 2, 3, 4, 5])
+        #expect(Set(ShortcutAction.allCases.map(\.hotKeyID)).count == ShortcutAction.allCases.count)
+    }
     @Test func rejectDuplicatesAndPlainKeysWithoutChangingSettings() {
         let (s, _) = settings(), original = KeyboardShortcut.defaults
         #expect(!s.set(original[.region], for: .full))

@@ -118,6 +118,8 @@ struct Dashboard: View {
             }.disabled(actionsUnavailable)
             Text("长截图框选后自动采集；拖动边角调整区域，点击结束截图后编辑或保存。").font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, -12)
             section("图片处理") {
+                actionRow("截图识字（OCR）", detail: "框选屏幕区域，自动识别中英文，可选择或复制文字", icon: "text.viewfinder", shortcut: model.shortcuts.bindings[.ocr]?.display, button: "识字") { model.capture("ocr") }
+                Divider().padding(.leading, 50)
                 actionRow("图片编辑", detail: "箭头、方框、文字、遮挡与 OCR", icon: "pencil.and.outline") { model.openImages() }
                 Divider().padding(.leading, 50)
                 actionRow("多图拼接", detail: "选择多张图片，按顺序纵向合并", icon: "rectangle.stack") { model.openImages(stitch: true) }

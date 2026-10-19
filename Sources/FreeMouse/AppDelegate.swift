@@ -86,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem.button?.title = recording ? String(format: " %02d:%02d", Int(model.recorder.elapsed)/60, Int(model.recorder.elapsed)%60) : ""
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let entries: [(String, Selector)] = [("打开自在工具箱", #selector(show)), (shortcutTitle("区域截图", .region), #selector(region)), (shortcutTitle("全屏截图", .full), #selector(full)), (shortcutTitle("窗口截图", .window), #selector(captureWindow)), (shortcutTitle("滚动长截图", .scroll), #selector(long)), ("打开图片编辑…", #selector(openImage))]
+        let entries: [(String, Selector)] = [("打开自在工具箱", #selector(show)), (shortcutTitle("区域截图", .region), #selector(region)), (shortcutTitle("全屏截图", .full), #selector(full)), (shortcutTitle("窗口截图", .window), #selector(captureWindow)), (shortcutTitle("滚动长截图", .scroll), #selector(long)), (shortcutTitle("截图识字（OCR）", .ocr), #selector(ocr)), ("打开图片编辑…", #selector(openImage))]
         for (title, action) in entries { let item = NSMenuItem(title: title, action: action, keyEquivalent: ""); item.target = self; menu.addItem(item) }
         menu.addItem(.separator())
         if recording {
@@ -121,6 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func full() { model.capture("full") }
     @objc private func captureWindow() { model.capture("window") }
     @objc private func long() { model.capture("scroll") }
+    @objc private func ocr() { model.capture("ocr") }
     @objc private func openImage() { model.openImages() }
     @objc private func recordAction() { if model.recorder.isRecording { model.stopRecording() } else { model.startRecording(fullScreen: false, fromMenuBar: true) } }
     @objc private func recordFullScreenAction() { model.startRecording(fullScreen: true, fromMenuBar: true) }
@@ -149,6 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 case .full: delegate.model.capture("full")
                 case .window: delegate.model.capture("window")
                 case .record: delegate.recordAction()
+                case .ocr: delegate.model.capture("ocr")
                 }
             }
             return noErr

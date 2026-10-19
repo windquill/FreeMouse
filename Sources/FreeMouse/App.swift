@@ -126,7 +126,7 @@ final class AppModel: ObservableObject {
                 } else {
                     let region: CaptureRegion?
                     var wantsScroll = kind == "scroll"
-                    var output: ScrollOutputAction = .edit
+                    var output: ScrollOutputAction = kind == "ocr" ? .recognize : .edit
                     if kind == "full" { region = captureService.fullScreenRegion() }
                     else if kind == "region" {
                         let choice = await captureService.chooseCapture()
