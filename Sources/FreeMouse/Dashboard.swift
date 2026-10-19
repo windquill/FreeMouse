@@ -6,7 +6,7 @@ struct Dashboard: View {
     @ObservedObject var recorder: Recorder
     private let accent = Color.accentColor
     private var actionsUnavailable: Bool { model.busy || recorder.isBusy || recorder.isRecording || model.scrolling }
-    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.22" }
+    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.23" }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -107,14 +107,14 @@ struct Dashboard: View {
             heading("截图与长图", "选择截图方式，完成后可标注、识别文字、复制或保存。")
             if !model.screenAllowed { permissionBanner }
             section("截图") {
-                actionRow("区域截图", detail: "拖动选择屏幕区域，Esc 取消", icon: "viewfinder", shortcut: "⌃⌥⌘A", button: "截图") { model.capture("region") }
+                actionRow("区域截图", detail: "拖动选择屏幕区域，Esc 取消", icon: "viewfinder", shortcut: model.shortcuts.bindings[.region]?.display, button: "截图") { model.capture("region") }
                 Divider().padding(.leading, 50)
-                actionRow("窗口截图", detail: "选择一个应用窗口", icon: "macwindow", button: "截图") { model.capture("window") }
+                actionRow("窗口截图", detail: "选择一个应用窗口", icon: "macwindow", shortcut: model.shortcuts.bindings[.window]?.display, button: "截图") { model.capture("window") }
                 Divider().padding(.leading, 50)
-                actionRow("全屏截图", detail: "截取当前鼠标所在的屏幕", icon: "display", button: "截图") { model.capture("full") }
+                actionRow("全屏截图", detail: "截取当前鼠标所在的屏幕", icon: "display", shortcut: model.shortcuts.bindings[.full]?.display, button: "截图") { model.capture("full") }
             }.disabled(actionsUnavailable)
             section("长图") {
-                actionRow("滚动长截图", detail: "选取滚动内容区，边滚动边拼接", icon: "rectangle.expand.vertical", shortcut: "⌃⌥⌘S", button: "开始") { model.capture("scroll") }
+                actionRow("滚动长截图", detail: "选取滚动内容区，边滚动边拼接", icon: "rectangle.expand.vertical", shortcut: model.shortcuts.bindings[.scroll]?.display, button: "开始") { model.capture("scroll") }
             }.disabled(actionsUnavailable)
             Text("长截图框选后自动采集；拖动边角调整区域，点击结束截图后编辑或保存。").font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, -12)
             section("图片处理") {
@@ -142,7 +142,7 @@ struct Dashboard: View {
                         Image(systemName: "record.circle.fill").font(.system(size: 30)).foregroundStyle(.red)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(String(format: "%02d:%02d", Int(recorder.elapsed) / 60, Int(recorder.elapsed) % 60)).font(.system(size: 28, weight: .medium, design: .monospaced))
-                            Text("也可从菜单栏停止 · ⌃⌥⌘R").font(.system(size: 11)).foregroundStyle(.secondary)
+                            Text(model.shortcuts.bindings[.record].map { "也可从菜单栏停止 · " + $0.display } ?? "也可从菜单栏停止").font(.system(size: 11)).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button("停止并保存") { model.stopRecording() }.buttonStyle(.borderedProminent).tint(.red)
@@ -239,6 +239,7 @@ struct Dashboard: View {
         Group {
             heading("通用设置", "调整工具行为，并查看各项功能需要的系统权限。")
             section("工具行为") { GeneralPreferencesPane(owner: model.contextTools).frame(height: 269) }
+            section("快捷键") { ShortcutSettingsPane(settings: model.shortcuts) }
             section("系统权限") {
                 permissionRow("屏幕与系统音频录制", detail: "截图、长截图和录屏需要", granted: model.screenAllowed) { model.requestScreen() }
                 Divider().padding(.leading, 14)

@@ -3,11 +3,11 @@ import SwiftUI
 import Carbon
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let model = AppModel()
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
-    private var hotKeys: [EventHotKeyRef] = []
+    private var hotKeys: [UUID: EventHotKeyRef] = [:]
     private var eventHandler: EventHandlerRef?
     private var statusTimer: Timer?
 
@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.servicesProvider = self
         NSUpdateDynamicServices()
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1010, height: 720), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.delegate = self
         window.title = "自在工具箱"; window.titlebarAppearsTransparent = true; window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: Dashboard(model: model, recorder: model.recorder))
         window.center(); model.window = window
@@ -38,6 +39,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.contextTools.configureTriggers()
         updateStatus(); installHotKeys()
         statusTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.updateStatus() } }
+    }
+    func applicationDidResignActive(_ notification: Notification) { model.shortcuts.cancelRecording() }
+    func windowDidResignKey(_ notification: Notification) { cancelShortcutRecording(notification) }
+    func windowWillClose(_ notification: Notification) { cancelShortcutRecording(notification) }
+    func windowDidMiniaturize(_ notification: Notification) { cancelShortcutRecording(notification) }
+    private func cancelShortcutRecording(_ notification: Notification) {
+        guard let changed = notification.object as? NSWindow, changed === window else { return }
+        model.shortcuts.cancelRecording()
     }
     func applicationDidBecomeActive(_ notification: Notification) {
         if NSApp.activationPolicy() != .accessory { NSApp.setActivationPolicy(.accessory) }
@@ -66,7 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateNow
     }
     func applicationWillTerminate(_ notification: Notification) {
-        for key in hotKeys { UnregisterEventHotKey(key) }
+        model.shortcuts.registry.suspend()
         if let eventHandler { RemoveEventHandler(eventHandler) }
     }
     private func updateStatus() {
@@ -77,17 +86,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.title = recording ? String(format: " %02d:%02d", Int(model.recorder.elapsed)/60, Int(model.recorder.elapsed)%60) : ""
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let entries: [(String, Selector)] = [("打开自在工具箱", #selector(show)), ("区域截图  ⌃⌥⌘A", #selector(region)), ("全屏截图", #selector(full)), ("窗口截图", #selector(captureWindow)), ("滚动长截图  ⌃⌥⌘S", #selector(long)), ("打开图片编辑…", #selector(openImage))]
+        let entries: [(String, Selector)] = [("打开自在工具箱", #selector(show)), (shortcutTitle("区域截图", .region), #selector(region)), (shortcutTitle("全屏截图", .full), #selector(full)), (shortcutTitle("窗口截图", .window), #selector(captureWindow)), (shortcutTitle("滚动长截图", .scroll), #selector(long)), ("打开图片编辑…", #selector(openImage))]
         for (title, action) in entries { let item = NSMenuItem(title: title, action: action, keyEquivalent: ""); item.target = self; menu.addItem(item) }
         menu.addItem(.separator())
         if recording {
-            let stop = NSMenuItem(title: "停止并保存录屏  ⌃⌥⌘R", action: #selector(recordAction), keyEquivalent: "")
+            let stop = NSMenuItem(title: shortcutTitle("停止并保存录屏", .record), action: #selector(recordAction), keyEquivalent: "")
             stop.target = self; menu.addItem(stop)
         } else if processingRecording {
             let progress = NSMenuItem(title: model.recordingPending ? "正在准备录屏…" : "正在完成录屏…", action: nil, keyEquivalent: "")
             progress.isEnabled = false; menu.addItem(progress)
         } else {
-            for (title, action) in [("开始区域录屏…", #selector(recordAction)), ("开始全屏录屏…", #selector(recordFullScreenAction))] {
+            for (title, action) in [(shortcutTitle("开始区域录屏…", .record), #selector(recordAction)), ("开始全屏录屏…", #selector(recordFullScreenAction))] {
                 let start = NSMenuItem(title: title, action: action, keyEquivalent: "")
                 start.target = self; start.isEnabled = !model.busy && !model.scrolling; menu.addItem(start)
             }
@@ -101,6 +110,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let preferences = NSMenuItem(title: "通用与右键设置…", action: #selector(menuSettings), keyEquivalent: ""); preferences.target = self; menu.addItem(preferences)
         let quit = NSMenuItem(title: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); menu.addItem(quit)
         statusItem.menu = menu
+    }
+    private func shortcutTitle(_ title: String, _ action: ShortcutAction) -> String {
+        guard let key = model.shortcuts.bindings[action] else { return title }
+        return title + "  " + key.display
     }
     @objc private func menuSettings() { model.contextTools.settings() }
     @objc private func show() { model.showWindow() }
@@ -128,19 +141,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let delegate = Unmanaged<AppDelegate>.fromOpaque(context).takeUnretainedValue()
             let keyID = id.id
             Task { @MainActor in
-                if keyID == 1 { delegate.model.capture("region") }
-                else if keyID == 2 { delegate.model.capture("scroll") }
-                else if keyID == 3 { delegate.model.stopRecording() }
+                guard delegate.model.shortcuts.recording == nil,
+                      let action = ShortcutAction.allCases.first(where: { $0.hotKeyID == keyID }) else { return }
+                switch action {
+                case .region: delegate.model.capture("region")
+                case .scroll: delegate.model.capture("scroll")
+                case .full: delegate.model.capture("full")
+                case .window: delegate.model.capture("window")
+                case .record: delegate.recordAction()
+                }
             }
             return noErr
         }, 1, &type, Unmanaged.passUnretained(self).toOpaque(), &eventHandler)
-        for (id, code) in [(1, kVK_ANSI_A), (2, kVK_ANSI_S), (3, kVK_ANSI_R)] {
+        let settings = model.shortcuts
+        settings.registry.register = { [weak self] action, key in
+            guard let self else { return nil }
             var reference: EventHotKeyRef?
-            let result = RegisterEventHotKey(UInt32(code), UInt32(cmdKey | optionKey | controlKey), EventHotKeyID(signature: 0x46524D53, id: UInt32(id)), GetApplicationEventTarget(), 0, &reference)
-            if result == noErr, let reference { hotKeys.append(reference) }
-            else { model.status = "部分快捷键被其他软件占用；仍可使用菜单栏操作。" }
+            let result = RegisterEventHotKey(key.keyCode, key.modifiers,
+                EventHotKeyID(signature: 0x46524D53, id: action.hotKeyID), GetApplicationEventTarget(), 0, &reference)
+            guard result == noErr, let reference else { return nil }
+            let token = UUID(); self.hotKeys[token] = reference
+            return token
         }
+        settings.registry.unregister = { [weak self] token in
+            if let ref = self?.hotKeys.removeValue(forKey: token) { UnregisterEventHotKey(ref) }
+        }
+        settings.onChange = { [weak self] in
+            self?.model.objectWillChange.send()
+            self?.updateStatus()
+        }
+        let unavailable = settings.registry.activateAvailable(settings.bindings)
+        if !unavailable.isEmpty { model.status = "快捷键被占用：" + unavailable.map(\.title).joined(separator: "、") + "；其余快捷键仍可使用。" }
     }
+
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
         model.importImages(filenames.map { URL(fileURLWithPath: $0) }); sender.reply(toOpenOrPrint: .success)
     }

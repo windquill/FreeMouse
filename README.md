@@ -1,4 +1,4 @@
-# 自在工具箱 FreeMouse 1.1.22
+# 自在工具箱 FreeMouse 1.1.23
 
 macOS 本地工具，提供截图、连续长截图、标注/OCR、录屏和右键文件操作。媒体处理在本机完成；只有主动选择 Google/百度翻译时，文字才会发送到所选网站。
 
@@ -9,6 +9,12 @@ Apple Silicon，macOS 15 或更新版本。打开 DMG，把「自在工具箱.ap
 本版本使用本地 ad-hoc 签名，没有 Apple 开发者证书或公证。如果 macOS 阻止打开，先尝试打开一次，再到「系统设置 → 隐私与安全性」选择「仍要打开」。无需关闭 Gatekeeper/SIP，也不需要终端删除隔离属性。
 
 截图、长截图和录屏需「屏幕与系统音频录制」授权；更新应用后如系统重新询问，请按实际需要授权。麦克风在启用录屏麦克风时申请。独立鼠标菜单需辅助功能权限；手动长截图不需要辅助功能。终端及云目录选区读取会请求自动化权限。
+
+## 1.1.23 自定义快捷键
+
+在「通用设置 → 快捷键」配置区域截图、滚动长截图、全屏截图、窗口截图和开始/停止区域录屏。点击当前组合键后直接按键录入，需包含Command、Control或Option；Esc取消。支持清除、恢复默认，保存立即生效并在重启后保留。
+
+默认区域截图⌃⌥⌘A、长截图⌃⌥⌘S、区域录屏启停⌃⌥⌘R；全屏和窗口截图默认不设置。录入时暂停本应用热键，取消或失去窗口焦点后恢复。重复组合及系统注册失败均提示，失败不保存；启动时某项被占用，不影响其他可用热键。菜单栏和截图页显示已保存组合。
 
 ## 1.1.22 框选蒙层接收首次点击
 
@@ -200,7 +206,7 @@ Finder 右键“设置右键菜单…”打开同一设置界面。隐藏全部�
 
 ## 源代码
 
-原有 FreeMouse 代码使用 MIT，导入的 Capso 长截图代码使用 BSL 1.1，完整条款见第三方声明。源码内运行 `/usr/bin/python3 scripts/build.py`，结果位于源码旁 `.build/release-1.1.22/自在工具箱.app`。需macOS Command Line Tools；为保留构建，已有同名构建目录时脚本会停止。
+原有 FreeMouse 代码使用 MIT，导入的 Capso 长截图代码使用 BSL 1.1，完整条款见第三方声明。源码内运行 `/usr/bin/python3 scripts/build.py`，结果位于源码旁 `.build/release-1.1.23/自在工具箱.app`。需macOS Command Line Tools；为保留构建，已有同名构建目录时脚本会停止。
 
 Swift6.4/本机CLT测试需 `swift test --disable-sandbox --disable-xctest` 并显式加载 `/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib`。缓存和scratch路径应统一使用绝对路径；完整已执行参数记于验证记录。
 

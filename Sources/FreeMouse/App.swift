@@ -37,6 +37,7 @@ final class AppModel: ObservableObject {
     lazy var contextTools = ContextTools(model: self)
     let recorder = Recorder()
     let captureService = CaptureService()
+    let shortcuts = ShortcutSettings()
     let scroll = ScrollCaptureController()
     var editors: [EditorWindow] = []
     var window: NSWindow?
