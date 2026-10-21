@@ -71,7 +71,7 @@ final class ContextTools: NSObject {
         showMenu()
     }
     func showMenu() {
-        let menu = NSMenu(title: "自在工具箱")
+        let menu = NSMenu(title: "OmniDesk")
         for entry in ToolMenuCatalog.orderedEntries() {
             let item = NSMenuItem(title: entry.title, action: #selector(performTool(_:)), keyEquivalent: "")
             item.target = self; item.representedObject = entry.id

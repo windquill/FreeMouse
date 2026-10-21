@@ -2,7 +2,7 @@ import AppKit
 
 enum FinderMenuBuilder {
     static func makeMenu(loadConfiguration: () throws -> ToolMenuConfiguration?, target: AnyObject, action: Selector) -> NSMenu {
-        let menu = NSMenu(title: "自在工具箱")
+        let menu = NSMenu(title: "OmniDesk")
         menu.autoenablesItems = false
         do {
             if let configuration = try loadConfiguration() {

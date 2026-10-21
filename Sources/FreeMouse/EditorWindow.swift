@@ -182,7 +182,7 @@ final class EditorWindow: NSWindowController {
         canvas = EditorCanvas(image: image)
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 780),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        w.title = "截图编辑 · 自在工具箱"
+        w.title = "截图编辑 · OmniDesk"
         w.minSize = NSSize(width: 980, height: 560)
         w.isReleasedWhenClosed = false
         super.init(window: w)

@@ -6,7 +6,7 @@ enum CameraOverlayError: LocalizedError {
     case interrupted(String)
     var errorDescription: String? {
         switch self {
-        case .permissionDenied: return "无法访问摄像头。请在系统设置 → 隐私与安全性 → 摄像头中允许自在工具箱，或关闭摄像头小窗。"
+        case .permissionDenied: return "无法访问摄像头。请在系统设置 → 隐私与安全性 → 摄像头中允许OmniDesk，或关闭摄像头小窗。"
         case .noCamera: return "未找到可用的摄像头，请连接摄像头或关闭摄像头小窗。"
         case .configurationFailed: return "摄像头无法启动，请检查是否被其他应用占用。"
         case .startupTimeout: return "未收到摄像头画面，请检查摄像头连接后重试。"

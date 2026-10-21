@@ -23,11 +23,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         NSApp.setActivationPolicy(.accessory)
         let menu = NSMenu()
         let appItem = NSMenuItem(); let appMenu = NSMenu(); appItem.submenu = appMenu
-        appMenu.addItem(withTitle: "关于自在工具箱", action: #selector(about), keyEquivalent: "")
+        appMenu.addItem(withTitle: "关于OmniDesk", action: #selector(about), keyEquivalent: "")
         appMenu.addItem(.separator())
         let services = NSMenuItem(title: "服务", action: nil, keyEquivalent: ""); services.submenu = NSMenu(); appMenu.addItem(services); NSApp.servicesMenu = services.submenu
-        appMenu.addItem(withTitle: "隐藏自在工具箱", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        appMenu.addItem(withTitle: "退出自在工具箱", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "隐藏OmniDesk", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "退出OmniDesk", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(appItem)
         let edit = NSMenuItem(title: "编辑", action: nil, keyEquivalent: ""); let editMenu = NSMenu(title: "编辑")
         for (title, sel, key) in [("撤销", "undo:", "z"), ("剪切", "cut:", "x"), ("复制", "copy:", "c"), ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] { editMenu.addItem(withTitle: title, action: Selector(sel), keyEquivalent: key) }
@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         NSUpdateDynamicServices()
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1010, height: 720), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.delegate = self
-        window.title = "自在工具箱"; window.titlebarAppearsTransparent = true; window.isReleasedWhenClosed = false
+        window.title = "OmniDesk"; window.titlebarAppearsTransparent = true; window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: Dashboard(model: model, recorder: model.recorder))
         window.center(); model.window = window
         model.restoreInterruptedCut()
@@ -125,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             trailingSpacing: NetworkSpeedMenuPreferences.trailingSpacing(from: UserDefaults.standard.object(forKey: NetworkSpeedMenuPreferences.trailingSpacingKey)))
         statusItem.button?.contentTintColor = recording ? .systemRed : nil
         statusItem.button?.title = ""
-        let description = "自在工具箱 · 上传 " + NetworkSpeedFormatter.string(networkSpeed.upload)
+        let description = "OmniDesk · 上传 " + NetworkSpeedFormatter.string(networkSpeed.upload)
             + " · 下载 " + NetworkSpeedFormatter.string(networkSpeed.download)
             + " · 点击网速查看网络详情，点击图标打开工具箱菜单"
             + (recording ? " · 正在录屏，点击图标菜单停止" : "")
@@ -141,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false
-        let entries: [(String, Selector)] = [(shortcutTitle("打开自在工具箱", .toolbox), #selector(show)), (shortcutTitle("区域截图", .region), #selector(region)), (shortcutTitle("全屏截图", .full), #selector(full)), (shortcutTitle("窗口截图", .window), #selector(captureWindow)), (shortcutTitle("滚动长截图", .scroll), #selector(long)), (shortcutTitle("截图识字（OCR）", .ocr), #selector(ocr)), (shortcutTitle("框选翻译…", .translate), #selector(translateSystem)), (shortcutTitle("打开图片编辑…", .openImage), #selector(openImage)), (shortcutTitle("网络面板", .network), #selector(networkAction))]
+        let entries: [(String, Selector)] = [(shortcutTitle("打开OmniDesk", .toolbox), #selector(show)), (shortcutTitle("区域截图", .region), #selector(region)), (shortcutTitle("全屏截图", .full), #selector(full)), (shortcutTitle("窗口截图", .window), #selector(captureWindow)), (shortcutTitle("滚动长截图", .scroll), #selector(long)), (shortcutTitle("截图识字（OCR）", .ocr), #selector(ocr)), (shortcutTitle("框选翻译…", .translate), #selector(translateSystem)), (shortcutTitle("打开图片编辑…", .openImage), #selector(openImage)), (shortcutTitle("网络面板", .network), #selector(networkAction))]
         for (title, action) in entries { let item = NSMenuItem(title: title, action: action, keyEquivalent: ""); item.target = self; menu.addItem(item) }
         menu.addItem(.separator())
         if recording {

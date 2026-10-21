@@ -1,8 +1,8 @@
-# 自在工具箱 FreeMouse
+# OmniDesk
 
 常驻 macOS 菜单栏的轻量工具箱：截图与 OCR、滚动长截图、框选翻译、录屏、实时网速和 Finder 文件工具。
 
-**版本 1.1.30 · Apple Silicon · macOS 15+**
+**版本 1.1.31 · Apple Silicon · macOS 15+**
 
 ## 主要功能
 
@@ -34,7 +34,7 @@
 
 ## 安装与使用
 
-1. 打开 Apple Silicon 版 DMG，将「自在工具箱.app」拖入「应用程序」；升级前先退出旧版。
+1. 打开 Apple Silicon 版 DMG，将「OmniDesk.app」拖入「应用程序」；升级前先退出旧版。
 2. 启动后点击菜单栏**工具箱图标**打开菜单，点击**网速**查看网络详情，点击独立的**翻译图标**开始框选翻译。
 3. 在「通用设置」中配置快捷键、菜单栏间距和权限。
 
@@ -72,9 +72,9 @@
 python3 scripts/build.py
 ```
 
-生成路径：`.build/release-1.1.30/自在工具箱.app`。构建目录已存在时，使用 `python3 scripts/build.py --refresh-binary` 更新可执行文件。
+生成路径：`.build/release-1.1.31/OmniDesk.app`。构建目录已存在时，使用 `python3 scripts/build.py --refresh-binary` 更新可执行文件。
 
-[历史版本](docs/CHANGELOG.md) · [验证记录与已知问题](docs/VALIDATION-1.1.30.md)
+[历史版本](docs/CHANGELOG.md) · [验证记录与已知问题](docs/VALIDATION-1.1.31.md)
 
 ## 开源许可
 

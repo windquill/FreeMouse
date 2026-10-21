@@ -8,7 +8,7 @@ struct Dashboard: View {
     @AppStorage(NetworkSpeedMenuPreferences.trailingSpacingKey) private var networkTrailingSpacing = NetworkSpeedMenuPreferences.defaultTrailingSpacing
     private let accent = Color.accentColor
     private var actionsUnavailable: Bool { model.busy || recorder.isBusy || recorder.isRecording || model.scrolling }
-    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.30" }
+    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.31" }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -38,8 +38,8 @@ struct Dashboard: View {
             HStack(spacing: 10) {
                 Image(systemName: "cursorarrow.rays").font(.system(size: 25, weight: .medium)).foregroundStyle(accent)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("自在工具箱").font(.system(size: 15, weight: .semibold))
-                    Text("FreeMouse").font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text("OmniDesk").font(.system(size: 15, weight: .semibold))
+                    Text("Menu Bar Toolkit").font(.system(size: 10)).foregroundStyle(.secondary)
                 }
             }.padding(.horizontal, 9).padding(.top, 16).padding(.bottom, 25)
             Text("工具").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).padding(.leading, 12).padding(.bottom, 5)
