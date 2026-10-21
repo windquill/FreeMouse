@@ -16,6 +16,20 @@ import Testing
         settings.registry.unregister = { _ in }
         return (settings, defaults)
     }
+    @Test func newMenuActionsPersistWithoutChangingExistingBindings() throws {
+        for name in ["translate", "toolbox", "openImage", "recordFull", "network", "settings", "camera"] {
+            let action = try #require(ShortcutAction(rawValue: name))
+            let (s, preferences) = settings()
+            let key = KeyboardShortcut(keyCode: 17, modifiers: UInt32(cmdKey | optionKey))
+            #expect(s.set(key, for: action))
+            #expect(ShortcutSettings(preferences: preferences).bindings[action] == key)
+            #expect(s.bindings[.region] == KeyboardShortcut.defaults[.region])
+            #expect(!s.set(KeyboardShortcut.defaults[.region], for: action))
+            #expect(s.set(nil, for: action))
+        }
+        #expect(ShortcutAction.ocr.hotKeyID == 6)
+    }
+
     @Test func persistClearAndReload() {
         let (s, defaults) = settings()
         let key = KeyboardShortcut(keyCode: 3, modifiers: UInt32(cmdKey | shiftKey))

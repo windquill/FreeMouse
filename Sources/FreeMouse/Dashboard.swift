@@ -8,7 +8,7 @@ struct Dashboard: View {
     @AppStorage(NetworkSpeedMenuPreferences.trailingSpacingKey) private var networkTrailingSpacing = NetworkSpeedMenuPreferences.defaultTrailingSpacing
     private let accent = Color.accentColor
     private var actionsUnavailable: Bool { model.busy || recorder.isBusy || recorder.isRecording || model.scrolling }
-    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.27" }
+    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.29" }
 
     var body: some View {
         HStack(spacing: 0) {

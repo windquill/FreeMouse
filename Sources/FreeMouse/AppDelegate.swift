@@ -6,6 +6,7 @@ import Carbon
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate, NSPopoverDelegate {
     let model = AppModel()
     private var statusItem: NSStatusItem!
+    private var translationStatusItem: NSStatusItem!
     private var window: NSWindow!
     private var hotKeys: [UUID: EventHotKeyRef] = [:]
     private var eventHandler: EventHandlerRef?
@@ -16,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var networkWakeObserver: NSObjectProtocol?
     private var toolboxMenu: NSMenu?
     private var networkPopover: NSPopover?
+    private let translationWindow = SystemTranslationWindow()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -39,6 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.center(); model.window = window
         model.restoreInterruptedCut()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        translationStatusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        translationStatusItem.button?.image = NSImage(systemSymbolName: "character.bubble", accessibilityDescription: "框选翻译")
+        translationStatusItem.button?.toolTip = "框选翻译：拖动选择屏幕文字，松开鼠标自动翻译"
+        translationStatusItem.button?.target = self
+        translationStatusItem.button?.action = #selector(translateSystem)
+        translationWindow.onSelect = { [weak self] in self?.translateSystem() }
         model.onRecordChange = { [weak self] in self?.updateStatus() }
         model.onMenuBarAppearanceChange = { [weak self] in self?.updateStatusButton() }
         statusItem.button?.target = self
@@ -133,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false
-        let entries: [(String, Selector)] = [("打开自在工具箱", #selector(show)), (shortcutTitle("区域截图", .region), #selector(region)), (shortcutTitle("全屏截图", .full), #selector(full)), (shortcutTitle("窗口截图", .window), #selector(captureWindow)), (shortcutTitle("滚动长截图", .scroll), #selector(long)), (shortcutTitle("截图识字（OCR）", .ocr), #selector(ocr)), ("打开图片编辑…", #selector(openImage))]
+        let entries: [(String, Selector)] = [(shortcutTitle("打开自在工具箱", .toolbox), #selector(show)), (shortcutTitle("区域截图", .region), #selector(region)), (shortcutTitle("全屏截图", .full), #selector(full)), (shortcutTitle("窗口截图", .window), #selector(captureWindow)), (shortcutTitle("滚动长截图", .scroll), #selector(long)), (shortcutTitle("截图识字（OCR）", .ocr), #selector(ocr)), (shortcutTitle("框选翻译…", .translate), #selector(translateSystem)), (shortcutTitle("打开图片编辑…", .openImage), #selector(openImage)), (shortcutTitle("网络面板", .network), #selector(networkAction))]
         for (title, action) in entries { let item = NSMenuItem(title: title, action: action, keyEquivalent: ""); item.target = self; menu.addItem(item) }
         menu.addItem(.separator())
         if recording {
@@ -143,18 +151,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             let progress = NSMenuItem(title: model.recordingPending ? "正在准备录屏…" : "正在完成录屏…", action: nil, keyEquivalent: "")
             progress.isEnabled = false; menu.addItem(progress)
         } else {
-            for (title, action) in [(shortcutTitle("开始区域录屏…", .record), #selector(recordAction)), ("开始全屏录屏…", #selector(recordFullScreenAction))] {
+            for (title, action) in [(shortcutTitle("开始区域录屏…", .record), #selector(recordAction)), (shortcutTitle("开始全屏录屏…", .recordFull), #selector(recordFullScreenAction))] {
                 let start = NSMenuItem(title: title, action: action, keyEquivalent: "")
                 start.target = self; start.isEnabled = !model.busy && !model.scrolling; menu.addItem(start)
             }
         }
         menu.addItem(.separator())
-        let camera = NSMenuItem(title: "录屏时显示摄像头小窗", action: #selector(toggleRecordingCamera), keyEquivalent: "")
+        let camera = NSMenuItem(title: shortcutTitle("录屏时显示摄像头小窗", .camera), action: #selector(toggleRecordingCamera), keyEquivalent: "")
         camera.target = self
         camera.state = model.cameraEnabled ? .on : .off
         camera.isEnabled = !recording && !processingRecording && !model.busy && !model.scrolling
         menu.addItem(camera)
-        let preferences = NSMenuItem(title: "通用与右键设置…", action: #selector(menuSettings), keyEquivalent: ""); preferences.target = self; menu.addItem(preferences)
+        let preferences = NSMenuItem(title: shortcutTitle("通用与右键设置…", .settings), action: #selector(menuSettings), keyEquivalent: ""); preferences.target = self; menu.addItem(preferences)
         let quit = NSMenuItem(title: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); menu.addItem(quit)
         toolboxMenu = menu
     }
@@ -205,6 +213,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     @objc private func captureWindow() { model.capture("window") }
     @objc private func long() { model.capture("scroll") }
     @objc private func ocr() { model.capture("ocr") }
+    @objc private func translateSystem() {
+        guard !translationWindow.state.busy, !model.busy, !model.recorder.isBusy,
+              !model.recorder.isRecording, !model.scroll.isActive else { return }
+        networkPopover?.performClose(nil)
+        guard CGPreflightScreenCaptureAccess() else { model.capture("translate"); return }
+        translationWindow.hideForSelection()
+        model.capture("translate", onImage: { [weak self] image in self?.translationWindow.recognize(image) },
+            onCancel: { [weak self] in self?.translationWindow.restoreAfterCancellation() })
+    }
+    @objc private func networkAction() { toggleNetworkPanel() }
     @objc private func openImage() { model.openImages() }
     @objc private func recordAction() { if model.recorder.isRecording { model.stopRecording() } else { model.startRecording(fullScreen: false, fromMenuBar: true) } }
     @objc private func recordFullScreenAction() { model.startRecording(fullScreen: true, fromMenuBar: true) }
@@ -234,6 +252,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 case .window: delegate.model.capture("window")
                 case .record: delegate.recordAction()
                 case .ocr: delegate.model.capture("ocr")
+                case .translate: delegate.translateSystem()
+                case .toolbox: delegate.show()
+                case .openImage: delegate.openImage()
+                case .recordFull:
+                    if delegate.model.recorder.isRecording { delegate.model.stopRecording() }
+                    else { delegate.recordFullScreenAction() }
+                case .network: delegate.networkAction()
+                case .settings: delegate.menuSettings()
+                case .camera: delegate.toggleRecordingCamera()
                 }
             }
             return noErr

@@ -3,7 +3,7 @@ import Carbon
 import SwiftUI
 
 enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
-    case region, scroll, full, window, record, ocr
+    case region, scroll, full, window, record, ocr, translate, toolbox, openImage, recordFull, network, settings, camera
     var id: String { rawValue }
     var hotKeyID: UInt32 { UInt32(Self.allCases.firstIndex(of: self)! + 1) }
     var title: String {
@@ -14,6 +14,13 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
         case .window: return "窗口截图"
         case .record: return "开始/停止区域录屏"
         case .ocr: return "截图识字（OCR）"
+        case .translate: return "框选翻译"
+        case .toolbox: return "打开工具箱"
+        case .openImage: return "打开图片编辑"
+        case .recordFull: return "开始/停止全屏录屏"
+        case .network: return "网络面板"
+        case .settings: return "通用与右键设置"
+        case .camera: return "录屏摄像头小窗开关"
         }
     }
 }

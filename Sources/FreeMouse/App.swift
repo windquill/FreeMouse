@@ -113,7 +113,7 @@ final class AppModel: ObservableObject {
         edit(image)
         editors.last?.performScrollOutput(action)
     }
-    func capture(_ kind: String) {
+    func capture(_ kind: String, onImage: ((CGImage) -> Void)? = nil, onCancel: (() -> Void)? = nil) {
         guard !scroll.isActive else { scroll.bringForward(); return }
         guard !busy && !recorder.isBusy && !recorder.isRecording else { return }
         guard CGPreflightScreenCaptureAccess() else { requestScreen(); status = "在系统设置中允许屏幕录制后，重新打开应用再截图"; return }
@@ -137,11 +137,15 @@ final class AppModel: ObservableObject {
                         if wantsScroll {
                             scroll.start(region: region) { [weak self] image in self?.edit(image) }
                             status = "长截图：直接滚动，拖动边角调整区域，结束后编辑保存"
-                        } else { finishScroll(try await captureService.capture(region: region), action: output) }
-                    } else { status = "已取消截图"; showWindow() }
+                        } else {
+                            let image = try await captureService.capture(region: region)
+                            if let onImage { onImage(image) }
+                            else { finishScroll(image, action: output) }
+                        }
+                    } else { status = "已取消截图"; if let onCancel { onCancel() } else { showWindow() } }
                 }
                 busy = false
-            } catch { fail(error.localizedDescription) }
+            } catch { fail(error.localizedDescription); onCancel?() }
         }
     }
     func startRecording(fullScreen: Bool, fromMenuBar: Bool = false) {
