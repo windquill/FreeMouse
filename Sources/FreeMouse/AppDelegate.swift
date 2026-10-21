@@ -214,10 +214,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     @objc private func long() { model.capture("scroll") }
     @objc private func ocr() { model.capture("ocr") }
     @objc private func translateSystem() {
-        guard !translationWindow.state.busy, !model.busy, !model.recorder.isBusy,
+        guard !model.busy, !model.recorder.isBusy,
               !model.recorder.isRecording, !model.scroll.isActive else { return }
         networkPopover?.performClose(nil)
         guard CGPreflightScreenCaptureAccess() else { model.capture("translate"); return }
+        translationWindow.cancel()
         translationWindow.hideForSelection()
         model.capture("translate", onImage: { [weak self] image in self?.translationWindow.recognize(image) },
             onCancel: { [weak self] in self?.translationWindow.restoreAfterCancellation() })
