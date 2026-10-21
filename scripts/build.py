@@ -4,7 +4,7 @@ from pathlib import Path
 import os, plistlib, shutil, subprocess, sys, struct, tempfile
 ROOT=Path(__file__).resolve().parents[1]
 WORK=ROOT/'.build'
-BUILD=WORK/'release-1.1.23'
+BUILD=WORK/'release-1.1.26'
 APP=BUILD/'自在工具箱.app'
 def run(args):
     print('+', ' '.join(map(str,args)), flush=True)
@@ -14,6 +14,7 @@ def copy_notices():
     resources.mkdir(parents=True,exist_ok=True)
     shutil.copy2(ROOT/'THIRD_PARTY_NOTICES.md',resources/'THIRD_PARTY_NOTICES.md')
     shutil.copy2(ROOT/'ThirdParty/Capso/LICENSE',resources/'Capso-LICENSE.txt')
+    shutil.copy2(ROOT/'ThirdParty/Stats/LICENSE',resources/'Stats-LICENSE.txt')
 def compile_app():
     sources=sorted((ROOT/'Sources/FreeMouse').rglob('*.swift'))
     run(['xcrun','swiftc','-O','-whole-module-optimization','-swift-version','5','-target','arm64-apple-macos15.0','-module-name','FreeMouse','-module-cache-path',WORK/'release-module-cache','-parse-as-library',*sources,'-o',APP/'Contents/MacOS/FreeMouse'])
@@ -22,12 +23,12 @@ if BUILD.exists():
         raise SystemExit(f'Refusing to overwrite {BUILD}; use --refresh-binary for this generated app only')
     info=plistlib.loads((APP/'Contents/Info.plist').read_bytes())
     assert info['CFBundleIdentifier']=='local.freemouse.toolbox'
-    assert info['CFBundleShortVersionString']=='1.1.23' and info['CFBundleVersion']=='25'
+    assert info['CFBundleShortVersionString']=='1.1.26' and info['CFBundleVersion']=='28'
     compile_app()
     copy_notices()
     run(['codesign','--force','--sign','-','--identifier','local.freemouse.toolbox',APP])
     run(['codesign','--verify','--deep','--strict','--verbose=2',APP])
-    print('PASS: refreshed 1.1.23 build 25 executable and verified signature')
+    print('PASS: refreshed 1.1.26 build 28 executable and verified signature')
     raise SystemExit(0)
 BUILD.mkdir(parents=True)
 contents=APP/'Contents'
@@ -37,8 +38,10 @@ copy_notices()
 compile_app()
 plist={
  'CFBundleName':'自在工具箱','CFBundleDisplayName':'自在工具箱','CFBundleExecutable':'FreeMouse',
- 'CFBundleIdentifier':'local.freemouse.toolbox','CFBundleShortVersionString':'1.1.23','CFBundleVersion':'25',
+ 'CFBundleIdentifier':'local.freemouse.toolbox','CFBundleShortVersionString':'1.1.26','CFBundleVersion':'28',
  'CFBundlePackageType':'APPL','CFBundleIconFile':'AppIcon','LSMinimumSystemVersion':'15.0',
+ 'NSLocationUsageDescription':'仅在您点击网络面板中的允许访问 Wi-Fi 详细信息时申请定位权限，用于读取当前 Wi-Fi 名称。',
+ 'NSLocationWhenInUseUsageDescription':'仅在您主动请求 Wi-Fi 详细信息时使用定位授权读取 Wi-Fi 名称。',
  'NSHighResolutionCapable':True,'NSPrincipalClass':'NSApplication','LSUIElement':True,
  'NSCameraUsageDescription':'仅在您开启录屏摄像头小窗时采集摄像头画面，并将其保存到您选择的本机视频文件。',
  'NSMicrophoneUsageDescription':'仅在您启用麦克风录屏时采集麦克风声音，并保存到您选择的本机文件。',
@@ -76,7 +79,7 @@ extension=contents/'PlugIns/FreeMouseFinder.appex'
 # Darwin modules. Use one fresh absolute cache for each extension build.
 with tempfile.TemporaryDirectory(prefix='finder-build-',dir=BUILD) as finder_cache:
  run(['xcrun','swiftc','-O','-swift-version','5','-target','arm64-apple-macos15.0','-module-name','FreeMouseFinder','-module-cache-path',finder_cache,'-application-extension','-parse-as-library','-Xlinker','-e','-Xlinker','_NSExtensionMain',ROOT/'FinderExtension/FinderExtension.swift',ROOT/'Sources/FreeMouse/MenuCatalog.swift',ROOT/'Sources/FreeMouse/FinderMenuPreferences.swift',ROOT/'Sources/FreeMouse/FinderMenuBuilder.swift','-o',extension/'Contents/MacOS/FreeMouseFinder'])
-extension_plist={'CFBundleName':'自在工具箱 Finder','CFBundleDisplayName':'自在工具箱 Finder','CFBundleIdentifier':'local.freemouse.toolbox.finder','CFBundleVersion':'25','CFBundleShortVersionString':'1.1.23','CFBundlePackageType':'XPC!','CFBundleExecutable':'FreeMouseFinder','LSMinimumSystemVersion':'15.0','NSExtension':{'NSExtensionPointIdentifier':'com.apple.FinderSync','NSExtensionPrincipalClass':'FinderExtension'}}
+extension_plist={'CFBundleName':'自在工具箱 Finder','CFBundleDisplayName':'自在工具箱 Finder','CFBundleIdentifier':'local.freemouse.toolbox.finder','CFBundleVersion':'28','CFBundleShortVersionString':'1.1.26','CFBundlePackageType':'XPC!','CFBundleExecutable':'FreeMouseFinder','LSMinimumSystemVersion':'15.0','NSExtension':{'NSExtensionPointIdentifier':'com.apple.FinderSync','NSExtensionPrincipalClass':'FinderExtension'}}
 with (extension/'Contents/Info.plist').open('wb') as f: plistlib.dump(extension_plist,f)
 entitlements=BUILD/'finder-entitlements.plist'
 with entitlements.open('wb') as f: plistlib.dump({'com.apple.security.app-sandbox':True,'com.apple.security.files.user-selected.read-only':True,'com.apple.security.temporary-exception.shared-preference.read-only':['local.freemouse.toolbox.finder-menu']},f)
@@ -85,9 +88,9 @@ run(['codesign','--force','--sign','-','--identifier','local.freemouse.toolbox',
 run(['codesign','--verify','--deep','--strict','--verbose=2',APP])
 for info_path in [contents/'Info.plist', extension/'Contents/Info.plist']:
  info=plistlib.loads(info_path.read_bytes())
- assert info['CFBundleShortVersionString']=='1.1.23' and info['CFBundleVersion']=='25'
+ assert info['CFBundleShortVersionString']=='1.1.26' and info['CFBundleVersion']=='28'
 actual=plistlib.loads((contents/'Info.plist').read_bytes())
 assert actual['LSUIElement'] is True and actual['NSCameraUsageDescription']
-print('PASS: 1.1.23 build 25, scroll capture pacing and tail settling')
+print('PASS: 1.1.26 build 28, Stats network popup and configurable menu bar spacing')
 print(APP)
 

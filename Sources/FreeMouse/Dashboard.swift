@@ -4,9 +4,10 @@ import AppKit
 struct Dashboard: View {
     @ObservedObject var model: AppModel
     @ObservedObject var recorder: Recorder
+    @AppStorage(NetworkSpeedMenuPreferences.spacingKey) private var networkIconSpacing = NetworkSpeedMenuPreferences.defaultSpacing
     private let accent = Color.accentColor
     private var actionsUnavailable: Bool { model.busy || recorder.isBusy || recorder.isRecording || model.scrolling }
-    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.23" }
+    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.26" }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -240,6 +241,19 @@ struct Dashboard: View {
     private var settingsPage: some View {
         Group {
             heading("通用设置", "调整工具行为，并查看各项功能需要的系统权限。")
+            section("菜单栏") {
+                preferenceRow("图标与网速间距", detail: "0–20 点，修改即时生效并自动保存。") {
+                    HStack(spacing: 8) {
+                        Slider(value: Binding(
+                            get: { NetworkSpeedMenuPreferences.spacing(from: NSNumber(value: networkIconSpacing)) },
+                            set: { networkIconSpacing = $0 }
+                        ), in: 0...20, step: 1).frame(width: 130)
+                        Text("\(Int(NetworkSpeedMenuPreferences.spacing(from: NSNumber(value: networkIconSpacing)))) 点")
+                            .monospacedDigit().frame(width: 38)
+                        Button("恢复默认") { networkIconSpacing = NetworkSpeedMenuPreferences.defaultSpacing }
+                    }
+                }
+            }.onChange(of: networkIconSpacing) { _, _ in model.onMenuBarAppearanceChange?() }
             section("工具行为") { GeneralPreferencesPane(owner: model.contextTools).frame(height: 269) }
             section("快捷键") { ShortcutSettingsPane(settings: model.shortcuts) }
             section("系统权限") {

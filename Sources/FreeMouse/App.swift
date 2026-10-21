@@ -42,6 +42,7 @@ final class AppModel: ObservableObject {
     var editors: [EditorWindow] = []
     var window: NSWindow?
     var onRecordChange: (() -> Void)?
+    var onMenuBarAppearanceChange: (() -> Void)?
     private var recordingObserver: Any?
     private var recordingFromMenuBar = false
 

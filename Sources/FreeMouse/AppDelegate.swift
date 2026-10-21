@@ -3,13 +3,19 @@ import SwiftUI
 import Carbon
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate, NSPopoverDelegate {
     let model = AppModel()
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
     private var hotKeys: [UUID: EventHotKeyRef] = [:]
     private var eventHandler: EventHandlerRef?
     private var statusTimer: Timer?
+    private let networkMonitor = NetworkMonitor()
+    private var networkSpeed: NetworkSpeed { networkMonitor.speed }
+    private var statusMenuIsOpen = false
+    private var networkWakeObserver: NSObjectProtocol?
+    private var toolboxMenu: NSMenu?
+    private var networkPopover: NSPopover?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -34,11 +40,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.restoreInterruptedCut()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         model.onRecordChange = { [weak self] in self?.updateStatus() }
+        model.onMenuBarAppearanceChange = { [weak self] in self?.updateStatusButton() }
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(statusItemClicked(_:))
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         model.contextTools.onMenuBarVisibility = { [weak self] _ in self?.statusItem.isVisible = true }
         statusItem.isVisible = true
         model.contextTools.configureTriggers()
         updateStatus(); installHotKeys()
-        statusTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.updateStatus() } }
+        networkMonitor.sample()
+        networkWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                // systemUptime can exclude sleep while byte counters keep growing.
+                self.networkMonitor.resetBaseline()
+                self.updateStatusButton()
+            }
+        }
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.networkMonitor.sample()
+                if self.statusMenuIsOpen { self.updateStatusButton() } else { self.updateStatus() }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        statusTimer = timer
     }
     func applicationDidResignActive(_ notification: Notification) { model.shortcuts.cancelRecording() }
     func windowDidResignKey(_ notification: Notification) { cancelShortcutRecording(notification) }
@@ -75,16 +104,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return .terminateNow
     }
     func applicationWillTerminate(_ notification: Notification) {
+        statusTimer?.invalidate()
+        networkMonitor.stopDetails()
+        if let networkWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(networkWakeObserver) }
         model.shortcuts.registry.suspend()
         if let eventHandler { RemoveEventHandler(eventHandler) }
     }
+    private func updateStatusButton() {
+        let recording = model.recorder.isRecording
+        statusItem.button?.image = NetworkSpeedMenuImage.make(speed: networkSpeed, recording: recording, elapsed: model.recorder.elapsed,
+            spacing: NetworkSpeedMenuPreferences.spacing(from: UserDefaults.standard.object(forKey: NetworkSpeedMenuPreferences.spacingKey)))
+        statusItem.button?.contentTintColor = recording ? .systemRed : nil
+        statusItem.button?.title = ""
+        let description = "自在工具箱 · 上传 " + NetworkSpeedFormatter.string(networkSpeed.upload)
+            + " · 下载 " + NetworkSpeedFormatter.string(networkSpeed.download)
+            + " · 点击网速查看网络详情，点击图标打开工具箱菜单"
+            + (recording ? " · 正在录屏，点击图标菜单停止" : "")
+        statusItem.button?.toolTip = description
+        statusItem.button?.setAccessibilityLabel(description)
+    }
+    func menuWillOpen(_ menu: NSMenu) { statusMenuIsOpen = true }
+    func menuDidClose(_ menu: NSMenu) { statusMenuIsOpen = false }
     private func updateStatus() {
+        updateStatusButton()
         let recording = model.recorder.isRecording
         let processingRecording = model.recordingPending || model.recorder.isBusy
-        statusItem.button?.image = NSImage(systemSymbolName: recording ? "stop.circle.fill" : "cursorarrow.rays", accessibilityDescription: recording ? "停止录屏" : "自在工具箱")
-        statusItem.button?.contentTintColor = recording ? .systemRed : nil
-        statusItem.button?.title = recording ? String(format: " %02d:%02d", Int(model.recorder.elapsed)/60, Int(model.recorder.elapsed)%60) : ""
         let menu = NSMenu()
+        menu.delegate = self
         menu.autoenablesItems = false
         let entries: [(String, Selector)] = [("打开自在工具箱", #selector(show)), (shortcutTitle("区域截图", .region), #selector(region)), (shortcutTitle("全屏截图", .full), #selector(full)), (shortcutTitle("窗口截图", .window), #selector(captureWindow)), (shortcutTitle("滚动长截图", .scroll), #selector(long)), (shortcutTitle("截图识字（OCR）", .ocr), #selector(ocr)), ("打开图片编辑…", #selector(openImage))]
         for (title, action) in entries { let item = NSMenuItem(title: title, action: action, keyEquivalent: ""); item.target = self; menu.addItem(item) }
@@ -109,7 +155,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(camera)
         let preferences = NSMenuItem(title: "通用与右键设置…", action: #selector(menuSettings), keyEquivalent: ""); preferences.target = self; menu.addItem(preferences)
         let quit = NSMenuItem(title: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); menu.addItem(quit)
-        statusItem.menu = menu
+        toolboxMenu = menu
+    }
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        guard let event = NSApp.currentEvent else { showToolboxMenu(); return }
+        let point = sender.convert(event.locationInWindow, from: nil)
+        let target = NetworkSpeedMenuHitTarget.target(x: point.x, buttonWidth: sender.bounds.width,
+            imageWidth: sender.image?.size.width ?? sender.bounds.width,
+            spacing: NetworkSpeedMenuPreferences.spacing(from: UserDefaults.standard.object(forKey: NetworkSpeedMenuPreferences.spacingKey)))
+        if event.type == .rightMouseUp || target == .toolbox { showToolboxMenu() }
+        else { toggleNetworkPanel() }
+    }
+    private func showToolboxMenu() {
+        networkPopover?.performClose(nil)
+        updateStatus()
+        guard let button = statusItem.button, let menu = toolboxMenu else { return }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.isFlipped ? button.bounds.maxY + 4 : -4), in: button)
+    }
+    private func toggleNetworkPanel() {
+        if networkPopover?.isShown == true { networkPopover?.performClose(nil); return }
+        guard let button = statusItem.button else { return }
+        let popover = networkPopover ?? NSPopover()
+        if networkPopover == nil {
+            popover.behavior = .transient
+            popover.animates = false
+            popover.delegate = self
+            popover.contentViewController = NSHostingController(rootView: NetworkPanel(monitor: networkMonitor) { [weak self] in self?.showToolboxMenu() })
+            networkPopover = popover
+        }
+        let availableHeight = (button.window?.screen?.visibleFrame.height ?? 800) - 60
+        popover.contentSize = NSSize(width: 280, height: min(860, max(400, availableHeight)))
+        networkMonitor.startDetails()
+        button.state = .on
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+    func popoverDidClose(_ notification: Notification) {
+        statusItem.button?.state = .off
+        networkMonitor.stopDetails()
     }
     private func shortcutTitle(_ title: String, _ action: ShortcutAction) -> String {
         guard let key = model.shortcuts.bindings[action] else { return title }
