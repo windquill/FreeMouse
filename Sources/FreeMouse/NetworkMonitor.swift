@@ -22,6 +22,7 @@ struct NetworkProcessTraffic: Identifiable {
     var name: String
     var upload: Double
     var download: Double
+    var identity: NetworkProcessIdentity? = nil
 }
 
 struct NetworkProcessCalculator {
@@ -66,6 +67,8 @@ struct NetworkProcessCalculator {
     @Published private(set) var publicIP: String?
     @Published private(set) var country: String?
     @Published private(set) var processStatus: String?
+    @Published private(set) var processActionMessage: String?
+    @Published private(set) var processActionFailed = false
     private let defaults: UserDefaults
     private let snapshot: () -> NetworkCounterSample?
     private var calculator = NetworkSpeedCalculator()
@@ -75,6 +78,7 @@ struct NetworkProcessCalculator {
     private var connectivityTask: Task<Void, Never>?
     private var processCalculator = NetworkProcessCalculator()
     private let processRunner = NetworkProcessRunner()
+    private let processKiller = NetworkProcessKiller()
     private var locationManager: CLLocationManager?
     private var previousLatency: Double?
     private var generation = UUID()
@@ -132,11 +136,19 @@ struct NetworkProcessCalculator {
                 guard let self else { return }
                 self.interface = NetworkDetailsReader.read(name: self.lastSample?.interface)
                 if iteration % 10 == 0 { self.refreshPublicIP() }
+                let samplingStartedAt = Date().timeIntervalSince1970
                 let result = await self.processRunner.read()
                 guard !Task.isCancelled, self.generation == token else { return }
                 switch result {
                 case .success(let output):
-                    self.processes = self.processCalculator.update(output, timestamp: ProcessInfo.processInfo.systemUptime)
+                    self.processes = self.processCalculator.update(output, timestamp: ProcessInfo.processInfo.systemUptime).map { value in
+                        var process = value
+                        if let identity = NetworkProcessKiller.snapshot(process.id),
+                           identity.canAttach(displayName: process.name, samplingStartedAt: samplingStartedAt) {
+                            process.identity = identity
+                        }
+                        return process
+                    }
                     self.processStatus = nil
                 case .failure:
                     self.processes = []
@@ -157,6 +169,27 @@ struct NetworkProcessCalculator {
         processCalculator = NetworkProcessCalculator()
         previousLatency = nil
         reachable = nil; latency = nil; jitter = nil
+    }
+    func killUnavailableReason(_ process: NetworkProcessTraffic) -> String? {
+        if process.id <= 1 { return NetworkProcessKillError.invalidTarget.localizedDescription }
+        if process.id == processKiller.ownPID { return NetworkProcessKillError.ownProcess.localizedDescription }
+        if process.identity == nil { return NetworkProcessKillError.unavailable.localizedDescription }
+        return nil
+    }
+    func killProcess(_ process: NetworkProcessTraffic) {
+        do {
+            guard let identity = process.identity,
+                  processes.contains(where: { $0.id == process.id && $0.identity == identity }) else {
+                throw NetworkProcessKillError.unavailable
+            }
+            try processKiller.kill(identity)
+            processes.removeAll { $0.id == process.id }
+            processActionFailed = false
+            processActionMessage = "已强制结束 \(process.name)（PID \(process.id)）"
+        } catch {
+            processActionFailed = true
+            processActionMessage = error.localizedDescription
+        }
     }
     func refreshPublicIP() {
         publicTask?.cancel()

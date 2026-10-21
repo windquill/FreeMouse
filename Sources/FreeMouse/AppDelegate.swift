@@ -113,7 +113,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private func updateStatusButton() {
         let recording = model.recorder.isRecording
         statusItem.button?.image = NetworkSpeedMenuImage.make(speed: networkSpeed, recording: recording, elapsed: model.recorder.elapsed,
-            spacing: NetworkSpeedMenuPreferences.spacing(from: UserDefaults.standard.object(forKey: NetworkSpeedMenuPreferences.spacingKey)))
+            spacing: NetworkSpeedMenuPreferences.spacing(from: UserDefaults.standard.object(forKey: NetworkSpeedMenuPreferences.spacingKey)),
+            trailingSpacing: NetworkSpeedMenuPreferences.trailingSpacing(from: UserDefaults.standard.object(forKey: NetworkSpeedMenuPreferences.trailingSpacingKey)))
         statusItem.button?.contentTintColor = recording ? .systemRed : nil
         statusItem.button?.title = ""
         let description = "自在工具箱 · 上传 " + NetworkSpeedFormatter.string(networkSpeed.upload)

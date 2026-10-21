@@ -5,9 +5,10 @@ struct Dashboard: View {
     @ObservedObject var model: AppModel
     @ObservedObject var recorder: Recorder
     @AppStorage(NetworkSpeedMenuPreferences.spacingKey) private var networkIconSpacing = NetworkSpeedMenuPreferences.defaultSpacing
+    @AppStorage(NetworkSpeedMenuPreferences.trailingSpacingKey) private var networkTrailingSpacing = NetworkSpeedMenuPreferences.defaultTrailingSpacing
     private let accent = Color.accentColor
     private var actionsUnavailable: Bool { model.busy || recorder.isBusy || recorder.isRecording || model.scrolling }
-    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.26" }
+    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.27" }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -253,7 +254,20 @@ struct Dashboard: View {
                         Button("恢复默认") { networkIconSpacing = NetworkSpeedMenuPreferences.defaultSpacing }
                     }
                 }
+                Divider().padding(.leading, 14)
+                preferenceRow("网速右侧留白", detail: "0–12 点，控制本图标与右侧图标之间的额外留白。") {
+                    HStack(spacing: 8) {
+                        Slider(value: Binding(
+                            get: { NetworkSpeedMenuPreferences.trailingSpacing(from: NSNumber(value: networkTrailingSpacing)) },
+                            set: { networkTrailingSpacing = $0 }
+                        ), in: 0...12, step: 1).frame(width: 130)
+                        Text("\(Int(NetworkSpeedMenuPreferences.trailingSpacing(from: NSNumber(value: networkTrailingSpacing)))) 点")
+                            .monospacedDigit().frame(width: 38)
+                        Button("恢复默认") { networkTrailingSpacing = NetworkSpeedMenuPreferences.defaultTrailingSpacing }
+                    }
+                }
             }.onChange(of: networkIconSpacing) { _, _ in model.onMenuBarAppearanceChange?() }
+                .onChange(of: networkTrailingSpacing) { _, _ in model.onMenuBarAppearanceChange?() }
             section("工具行为") { GeneralPreferencesPane(owner: model.contextTools).frame(height: 269) }
             section("快捷键") { ShortcutSettingsPane(settings: model.shortcuts) }
             section("系统权限") {

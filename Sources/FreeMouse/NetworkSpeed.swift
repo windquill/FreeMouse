@@ -137,9 +137,15 @@ enum NetworkSpeedFormatter {
 enum NetworkSpeedMenuPreferences {
     static let spacingKey = "menuBarNetworkIconSpacing"
     static let defaultSpacing: Double = 2
+    static let trailingSpacingKey = "menuBarNetworkTrailingSpacing"
+    static let defaultTrailingSpacing: Double = 2
     static func spacing(from savedValue: Any?) -> Double {
         guard let number = savedValue as? NSNumber, number.doubleValue.isFinite else { return defaultSpacing }
         return min(20, max(0, number.doubleValue))
+    }
+    static func trailingSpacing(from savedValue: Any?) -> Double {
+        guard let number = savedValue as? NSNumber, number.doubleValue.isFinite else { return defaultTrailingSpacing }
+        return min(12, max(0, number.doubleValue))
     }
 }
 
@@ -154,25 +160,29 @@ enum NetworkSpeedMenuHitTarget {
 
 @MainActor enum NetworkSpeedMenuImage {
     static func make(speed: NetworkSpeed, recording: Bool, elapsed: TimeInterval,
-                     spacing: Double = NetworkSpeedMenuPreferences.defaultSpacing) -> NSImage {
+                     spacing: Double = NetworkSpeedMenuPreferences.defaultSpacing,
+                     trailingSpacing: Double = NetworkSpeedMenuPreferences.defaultTrailingSpacing) -> NSImage {
         let textX = 16 + CGFloat(NetworkSpeedMenuPreferences.spacing(from: NSNumber(value: spacing)))
-        let baseWidth = textX + 74
+        let trailing = CGFloat(NetworkSpeedMenuPreferences.trailingSpacing(from: NSNumber(value: trailingSpacing)))
         let timer = recording ? String(format: "%02d:%02d", Int(max(0, elapsed)) / 60, Int(max(0, elapsed)) % 60) : ""
         let font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular)
         let timerFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-        let timerWidth = recording ? max(42, (timer as NSString).size(withAttributes: [.font: timerFont]).width + 6) : 0
-        let image = NSImage(size: NSSize(width: baseWidth + timerWidth, height: 22), flipped: false) { _ in
+        let rows = ["↑ " + NetworkSpeedFormatter.string(speed.upload), "↓ " + NetworkSpeedFormatter.string(speed.download)]
+        let rowWidth = ceil(rows.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0)
+        let textEnd = textX + rowWidth
+        let timerWidth = recording ? ceil((timer as NSString).size(withAttributes: [.font: timerFont]).width) : 0
+        let width = textEnd + (recording ? 6 + timerWidth : 0) + trailing
+        let image = NSImage(size: NSSize(width: width, height: 22), flipped: false) { _ in
             let symbol = NSImage(systemSymbolName: recording ? "stop.circle.fill" : "cursorarrow.rays", accessibilityDescription: nil)
             symbol?.draw(in: NSRect(x: 0, y: 3, width: 16, height: 16))
             let style = NSMutableParagraphStyle()
             style.alignment = .left
             let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.black, .paragraphStyle: style]
-            for (text, y) in [("↑ " + NetworkSpeedFormatter.string(speed.upload), CGFloat(11)),
-                              ("↓ " + NetworkSpeedFormatter.string(speed.download), CGFloat(0))] {
-                (text as NSString).draw(in: NSRect(x: textX, y: y, width: 72, height: 11), withAttributes: attributes)
+            for (text, y) in [(rows[0], CGFloat(11)), (rows[1], CGFloat(0))] {
+                (text as NSString).draw(in: NSRect(x: textX, y: y, width: rowWidth, height: 11), withAttributes: attributes)
             }
             if recording {
-                (timer as NSString).draw(in: NSRect(x: baseWidth + 4, y: 4, width: timerWidth - 4, height: 15),
+                (timer as NSString).draw(in: NSRect(x: textEnd + 6, y: 4, width: timerWidth, height: 15),
                                          withAttributes: [.font: timerFont, .foregroundColor: NSColor.black])
             }
             return true

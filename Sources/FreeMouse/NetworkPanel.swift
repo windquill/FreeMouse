@@ -159,6 +159,12 @@ struct NetworkPanel: View {
             }.font(.system(size: 13)).frame(height: 22)
             ForEach(Array(monitor.processes.prefix(8))) { process in
                 HStack(spacing: 5) {
+                    Button("Kill") { monitor.killProcess(process) }
+                        .buttonStyle(.borderless).font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.red).frame(width: 22)
+                        .disabled(monitor.killUnavailableReason(process) != nil)
+                        .help(monitor.killUnavailableReason(process) ?? "强制结束 \(process.name)（PID \(process.id)），可能丢失未保存内容")
+                        .accessibilityLabel("强制结束 \(process.name)，PID \(process.id)")
                     Image(nsImage: processIcon(process.id)).resizable().frame(width: 16, height: 16)
                     Text(process.name).lineLimit(1).truncationMode(.middle).help(process.name)
                     Spacer(minLength: 0)
@@ -172,6 +178,11 @@ struct NetworkPanel: View {
             if monitor.processes.isEmpty {
                 Text(monitor.processStatus ?? "暂无进程流量数据")
                     .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 3)
+            }
+            if let message = monitor.processActionMessage {
+                Text(message).font(.system(size: 11))
+                    .foregroundStyle(monitor.processActionFailed ? Color.red : Color.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 3)
             }
         }

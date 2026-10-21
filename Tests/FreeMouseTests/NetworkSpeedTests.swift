@@ -97,13 +97,25 @@ struct NetworkSpeedTests {
         #expect(NetworkSpeedFormatter.string(.nan) == "0 B/s")
     }
 
-    @MainActor @Test func menuImageKeepsStableWidthAndRecordingIndicator() {
+    @MainActor @Test func menuImageFitsCurrentTextAndKeepsRecordingIndicator() {
         let idle = NetworkSpeedMenuImage.make(speed: .zero, recording: false, elapsed: 0)
         let busy = NetworkSpeedMenuImage.make(speed: .init(upload: 9_876_543, download: 987_654_321), recording: false, elapsed: 0)
-        #expect(idle.size == busy.size)
+        #expect(idle.size.width < 70)
+        #expect(busy.size.width > idle.size.width)
         #expect(idle.size.height == 22)
         #expect(idle.isTemplate)
         #expect(NetworkSpeedMenuImage.make(speed: .zero, recording: true, elapsed: 60).size.width > idle.size.width)
+    }
+
+    @MainActor @Test func trailingSpacingControlsOnlyOwnRightPadding() {
+        let tight = NetworkSpeedMenuImage.make(speed: .zero, recording: false, elapsed: 0, trailingSpacing: 0)
+        let wide = NetworkSpeedMenuImage.make(speed: .zero, recording: false, elapsed: 0, trailingSpacing: 12)
+        #expect(wide.size.width - tight.size.width == 12)
+        #expect(NetworkSpeedMenuImage.make(speed: .zero, recording: false, elapsed: 0).size.width == tight.size.width + 2)
+        #expect(NetworkSpeedMenuPreferences.trailingSpacing(from: NSNumber(value: -3)) == 0)
+        #expect(NetworkSpeedMenuPreferences.trailingSpacing(from: NSNumber(value: 99)) == 12)
+        #expect(NetworkSpeedMenuPreferences.trailingSpacing(from: nil) == 2)
+        #expect(NetworkSpeedMenuPreferences.trailingSpacing(from: NSNumber(value: Double.infinity)) == 2)
     }
 
     @MainActor @Test func spacingChangesOnlyTheGapAndKeepsRecordingVisible() {
