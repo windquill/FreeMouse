@@ -105,12 +105,20 @@ enum FinderMenuActionRegistry {
         (1031, "hashSHA256"), (1032, "hashSHA512"), (1033, "capture"),
         (1034, "captureFull"), (1035, "captureScroll"), (1036, "record"),
         (1037, "qr"), (1038, "translateGoogle"), (1039, "translateBaidu"),
+        (1040, "extract"), (1041, "compress"),
         (2001, "newTemplate.txt"), (2002, "newTemplate.rtf"), (2003, "newTemplate.md"),
         (2004, "newTemplate.xml"), (2005, "newTemplate.docx"), (2006, "newTemplate.xlsx"),
         (2007, "newTemplate.pptx"), (2008, "newTemplate.json"), (2009, "newTemplate.html"),
         (2010, "newTemplate.css"), (2011, "newTemplate.js"), (2012, "newTemplate.py"),
         (2013, "newTemplate.sh"), (2014, "newTemplate.cpp"), (2015, "newTemplate.svg"),
-        (2016, "newTemplate.csv"), (2017, "newTemplate.yaml"), (9001, settingsAction)
+        (2016, "newTemplate.csv"), (2017, "newTemplate.yaml"),
+        (3001, "compress.zip"), (3002, "compress.7z"), (3003, "compress.tar"),
+        (3004, "compress.tar.gz"), (3005, "compress.tar.bz2"), (3006, "compress.tar.xz"),
+        (3007, "compress.tar.lzma"), (3008, "compress.tar.zst"), (3009, "compress.tar.lz4"),
+        (3010, "compress.tar.Z"), (3011, "compress.cpio"), (3012, "compress.cpio.gz"),
+        (3013, "compress.xar"),
+        (3014, "compress.gz"), (3015, "compress.bz2"), (3016, "compress.xz"),
+        (3017, "compress.lzma"), (3018, "compress.zst"), (3019, "compress.lz4"), (9001, settingsAction)
     ]
     private static let byTag = Dictionary(uniqueKeysWithValues: actions)
     private static let byAction = Dictionary(uniqueKeysWithValues: actions.map { ($0.1, $0.0) })

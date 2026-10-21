@@ -159,6 +159,20 @@ enum NetworkSpeedMenuHitTarget {
 }
 
 @MainActor enum NetworkSpeedMenuImage {
+    /// Logarithmic interpolation keeps KB/s and MB/s changes visible on one scale.
+    static func color(for bytesPerSecond: Double) -> NSColor {
+        guard bytesPerSecond.isFinite, bytesPerSecond > 0 else { return .secondaryLabelColor }
+        let stops: [(Double, NSColor)] = [(1024, .systemBlue), (1_048_576, .systemGreen),
+                                         (10_485_760, .systemOrange), (104_857_600, .systemRed)]
+        if bytesPerSecond <= stops[0].0 { return stops[0].1 }
+        for index in 1..<stops.count where bytesPerSecond < stops[index].0 {
+            let (low, start) = stops[index - 1]
+            let (high, end) = stops[index]
+            let fraction = CGFloat(log(bytesPerSecond / low) / log(high / low))
+            return start.blended(withFraction: fraction, of: end) ?? end
+        }
+        return .systemRed
+    }
     static func make(speed: NetworkSpeed, recording: Bool, elapsed: TimeInterval,
                      spacing: Double = NetworkSpeedMenuPreferences.defaultSpacing,
                      trailingSpacing: Double = NetworkSpeedMenuPreferences.defaultTrailingSpacing) -> NSImage {
@@ -173,21 +187,26 @@ enum NetworkSpeedMenuHitTarget {
         let timerWidth = recording ? ceil((timer as NSString).size(withAttributes: [.font: timerFont]).width) : 0
         let width = textEnd + (recording ? 6 + timerWidth : 0) + trailing
         let image = NSImage(size: NSSize(width: width, height: 22), flipped: false) { _ in
-            let symbol = NSImage(systemSymbolName: recording ? "stop.circle.fill" : "cursorarrow.rays", accessibilityDescription: nil)
+            let symbol = NSImage(systemSymbolName: recording ? "stop.circle.fill" : "cursorarrow.rays", accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(paletteColors: [recording ? .systemRed : .labelColor]))
             symbol?.draw(in: NSRect(x: 0, y: 3, width: 16, height: 16))
             let style = NSMutableParagraphStyle()
             style.alignment = .left
-            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.black, .paragraphStyle: style]
-            for (text, y) in [(rows[0], CGFloat(11)), (rows[1], CGFloat(0))] {
-                (text as NSString).draw(in: NSRect(x: textX, y: y, width: rowWidth, height: 11), withAttributes: attributes)
+            for (text, y, color) in [(rows[0], CGFloat(11), color(for: speed.upload)),
+                                     (rows[1], CGFloat(0), color(for: speed.download))] {
+                let line = NSMutableAttributedString(string: text, attributes: [
+                    .font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: style
+                ])
+                line.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: 1))
+                line.draw(in: NSRect(x: textX, y: y, width: rowWidth, height: 11))
             }
             if recording {
                 (timer as NSString).draw(in: NSRect(x: textEnd + 6, y: 4, width: timerWidth, height: 15),
-                                         withAttributes: [.font: timerFont, .foregroundColor: NSColor.black])
+                                         withAttributes: [.font: timerFont, .foregroundColor: NSColor.systemRed])
             }
             return true
         }
-        image.isTemplate = true
+        image.isTemplate = false
         return image
     }
 }

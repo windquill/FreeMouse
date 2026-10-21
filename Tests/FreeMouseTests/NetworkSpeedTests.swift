@@ -103,7 +103,7 @@ struct NetworkSpeedTests {
         #expect(idle.size.width < 70)
         #expect(busy.size.width > idle.size.width)
         #expect(idle.size.height == 22)
-        #expect(idle.isTemplate)
+        #expect(!idle.isTemplate)
         #expect(NetworkSpeedMenuImage.make(speed: .zero, recording: true, elapsed: 60).size.width > idle.size.width)
     }
 

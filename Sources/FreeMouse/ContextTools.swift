@@ -81,6 +81,12 @@ final class ContextTools: NSObject {
                     let child = NSMenuItem(title: format.title, action: #selector(performTool(_:)), keyEquivalent: "")
                     child.target = self; child.representedObject = "newTemplate." + format.id; formats.addItem(child)
                 }
+            } else if entry.id == "compress" {
+                item.action = nil; let formats = NSMenu(); item.submenu = formats
+                for format in ArchiveFormat.available {
+                    let child = NSMenuItem(title: format.title, action: #selector(performTool(_:)), keyEquivalent: "")
+                    child.target = self; child.representedObject = "compress." + format.id; formats.addItem(child)
+                }
             }
             menu.addItem(item)
         }
@@ -103,6 +109,7 @@ final class ContextTools: NSObject {
 @MainActor
 extension AppModel {
     func performContextAction(_ action: String) {
+        if archiveAction(action) { return }
         if extendedFileAction(action) || templateImageAction(action) { return }
         switch action {
         case "paths": copyPaths()
@@ -398,6 +405,8 @@ final class MenuConfigurationController: NSViewController, NSTableViewDataSource
         case "desktopAlias": return "arrow.up.forward.square"
         case "airdrop": return "airplayaudio"
         case "deletePermanent": return "trash"
+        case "extract": return "archivebox"
+        case "compress": return "archivebox.fill"
         case "favorites": return "star"
         case "terminal": return "terminal"
         case "openWith": return "app"

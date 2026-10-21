@@ -136,6 +136,7 @@ struct FinderMenuIntegrationTests {
     @Test func allActionTagsArePositiveUniqueAndReversible() throws {
         let actions = ToolMenuCatalog.entries.map(\.id)
             + ToolMenuCatalog.templateFormats.map { "newTemplate." + $0.id }
+            + ArchiveFormat.all.map { "compress." + $0.id }
             + [FinderMenuActionRegistry.settingsAction]
         var tags = Set<Int>()
         for action in actions {

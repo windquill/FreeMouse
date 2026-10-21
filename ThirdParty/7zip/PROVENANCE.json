@@ -1,0 +1,10 @@
+{
+  "version": "26.04",
+  "url": "https://github.com/ip7z/7zip/releases/download/26.04/7z2604-mac.tar.xz",
+  "downloadSHA256": {
+    "7zip-mac.tar.xz": "bee04358cbcbc7106273cee0e8d72916db2696c48067a3538c34d8cd6fd16578",
+    "zstd.tar.gz": "37d7284556b20954e56e1ca85b80226768902e2edabd3b649e9e72c0c9012ee3",
+    "lz4.tar.gz": "537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b"
+  },
+  "binarySHA256": "36ea959367d8f9ac51d47a56dc1f20bfb851f1cd22d6f206e85cb5cbc6ab4577"
+}

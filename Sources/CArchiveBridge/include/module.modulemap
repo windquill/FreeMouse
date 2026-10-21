@@ -1,0 +1,5 @@
+module CArchiveBridge {
+  header "ArchiveBridge.h"
+  header "ArchiveCodecs.h"
+  export *
+}

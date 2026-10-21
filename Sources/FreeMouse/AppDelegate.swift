@@ -18,6 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var toolboxMenu: NSMenu?
     private var networkPopover: NSPopover?
     private let translationWindow = SystemTranslationWindow()
+    private let startupManager = StartupManagerWindow()
+    private let fanControl = FanControlWindow()
+    private let inputSourceSwitcher = InputSourceSwitcher()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -56,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusItem.isVisible = true
         model.contextTools.configureTriggers()
         updateStatus(); installHotKeys()
+        inputSourceSwitcher.start()
         networkMonitor.sample()
         networkWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
@@ -112,6 +116,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         return .terminateNow
     }
     func applicationWillTerminate(_ notification: Notification) {
+        startupManager.shutdown()
+        inputSourceSwitcher.stop()
+        fanControl.shutdown()
         statusTimer?.invalidate()
         networkMonitor.stopDetails()
         if let networkWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(networkWakeObserver) }
@@ -123,11 +130,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusItem.button?.image = NetworkSpeedMenuImage.make(speed: networkSpeed, recording: recording, elapsed: model.recorder.elapsed,
             spacing: NetworkSpeedMenuPreferences.spacing(from: UserDefaults.standard.object(forKey: NetworkSpeedMenuPreferences.spacingKey)),
             trailingSpacing: NetworkSpeedMenuPreferences.trailingSpacing(from: UserDefaults.standard.object(forKey: NetworkSpeedMenuPreferences.trailingSpacingKey)))
-        statusItem.button?.contentTintColor = recording ? .systemRed : nil
+        statusItem.button?.contentTintColor = nil
         statusItem.button?.title = ""
         let description = "OmniDesk · 上传 " + NetworkSpeedFormatter.string(networkSpeed.upload)
             + " · 下载 " + NetworkSpeedFormatter.string(networkSpeed.download)
             + " · 点击网速查看网络详情，点击图标打开工具箱菜单"
+            + " · 箭头随速度变色：空闲灰、低速蓝、随后绿/橙/红"
             + (recording ? " · 正在录屏，点击图标菜单停止" : "")
         statusItem.button?.toolTip = description
         statusItem.button?.setAccessibilityLabel(description)
@@ -143,6 +151,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.autoenablesItems = false
         let entries: [(String, Selector)] = [(shortcutTitle("打开OmniDesk", .toolbox), #selector(show)), (shortcutTitle("区域截图", .region), #selector(region)), (shortcutTitle("全屏截图", .full), #selector(full)), (shortcutTitle("窗口截图", .window), #selector(captureWindow)), (shortcutTitle("滚动长截图", .scroll), #selector(long)), (shortcutTitle("截图识字（OCR）", .ocr), #selector(ocr)), (shortcutTitle("框选翻译…", .translate), #selector(translateSystem)), (shortcutTitle("打开图片编辑…", .openImage), #selector(openImage)), (shortcutTitle("网络面板", .network), #selector(networkAction))]
         for (title, action) in entries { let item = NSMenuItem(title: title, action: action, keyEquivalent: ""); item.target = self; menu.addItem(item) }
+        menu.addItem(.separator())
+        for (title, action) in [(shortcutTitle("应用与启动项管理…", .startup), #selector(startupAction)),
+                                (shortcutTitle("风扇控制…", .fans), #selector(fansAction)),
+                                (shortcutTitle("应用输入法…", .inputSource), #selector(inputSourceAction))] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self; menu.addItem(item)
+        }
         menu.addItem(.separator())
         if recording {
             let stop = NSMenuItem(title: shortcutTitle("停止并保存录屏", .record), action: #selector(recordAction), keyEquivalent: "")
@@ -224,6 +239,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             onCancel: { [weak self] in self?.translationWindow.restoreAfterCancellation() })
     }
     @objc private func networkAction() { toggleNetworkPanel() }
+    @objc private func startupAction() { startupManager.show() }
+    @objc private func fansAction() { fanControl.show() }
+    @objc private func inputSourceAction() { inputSourceSwitcher.showWindow() }
     @objc private func openImage() { model.openImages() }
     @objc private func recordAction() { if model.recorder.isRecording { model.stopRecording() } else { model.startRecording(fullScreen: false, fromMenuBar: true) } }
     @objc private func recordFullScreenAction() { model.startRecording(fullScreen: true, fromMenuBar: true) }
@@ -262,6 +280,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 case .network: delegate.networkAction()
                 case .settings: delegate.menuSettings()
                 case .camera: delegate.toggleRecordingCamera()
+                case .startup: delegate.startupAction()
+                case .fans: delegate.fansAction()
+                case .inputSource: delegate.inputSourceAction()
                 }
             }
             return noErr

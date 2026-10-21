@@ -18,6 +18,14 @@ enum FinderMenuBuilder {
                             let child = NSMenuItem(title: format.title, action: action, keyEquivalent: "")
                             child.target = target; child.tag = tag; formats.addItem(child)
                         }
+                    } else if entry.id == "compress" {
+                        item.action = nil
+                        let formats = NSMenu(); formats.autoenablesItems = false; item.submenu = formats
+                        for format in ArchiveFormat.available {
+                            guard let tag = FinderMenuActionRegistry.tag(for: "compress." + format.id) else { continue }
+                            let child = NSMenuItem(title: format.title, action: action, keyEquivalent: "")
+                            child.target = target; child.tag = tag; formats.addItem(child)
+                        }
                     }
                     menu.addItem(item)
                 }

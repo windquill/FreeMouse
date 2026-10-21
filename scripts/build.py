@@ -4,7 +4,8 @@ from pathlib import Path
 import os, plistlib, shutil, subprocess, sys, struct, tempfile
 ROOT=Path(__file__).resolve().parents[1]
 WORK=ROOT/'.build'
-BUILD=WORK/'release-1.1.31'
+BUILD=WORK/'release-1.1.38'
+BRIDGE_OBJECTS=[]
 APP=BUILD/'OmniDesk.app'
 def run(args):
     print('+', ' '.join(map(str,args)), flush=True)
@@ -15,20 +16,56 @@ def copy_notices():
     shutil.copy2(ROOT/'THIRD_PARTY_NOTICES.md',resources/'THIRD_PARTY_NOTICES.md')
     shutil.copy2(ROOT/'ThirdParty/Capso/LICENSE',resources/'Capso-LICENSE.txt')
     shutil.copy2(ROOT/'ThirdParty/Stats/LICENSE',resources/'Stats-LICENSE.txt')
+    shutil.copy2(ROOT/'ThirdParty/libarchive/COPYING',resources/'libarchive-COPYING.txt')
+    tools=resources/'ArchiveTools'
+    tools.mkdir(exist_ok=True)
+    shutil.copy2(ROOT/'ThirdParty/7zip/7zz',tools/'7zz')
+    shutil.copy2(ROOT/'ThirdParty/7zip/License.txt',tools/'7zip-LICENSE.txt')
+    shutil.copy2(ROOT/'ThirdParty/7zip/7z2604-src.tar.xz',tools/'7zip-26.04-source.tar.xz')
+    shutil.copy2(ROOT/'ThirdParty/zstd/LICENSE',tools/'zstd-LICENSE.txt')
+    shutil.copy2(ROOT/'ThirdParty/lz4/lib/LICENSE',tools/'lz4-LICENSE.txt')
+    run(['codesign','--force','--sign','-',tools/'7zz'])
+    helpers=APP/'Contents/Helpers'
+    helpers.mkdir(exist_ok=True)
+    fan_helper=helpers/'OmniDeskFanHelper'
+    run(['xcrun','swiftc','-O','-swift-version','5','-target','arm64-apple-macos15.0',
+         '-module-cache-path',WORK/'release-module-cache',
+         ROOT/'Sources/FanHelper/SMC.swift',ROOT/'Sources/FanHelper/main.swift',
+         '-framework','IOKit','-o',fan_helper])
+    run(['codesign','--force','--sign','-',fan_helper])
+def compile_bridge():
+    global BRIDGE_OBJECTS
+    bridge=ROOT/'Sources/CArchiveBridge'
+    cache=WORK/'archive-codecs'
+    cache.mkdir(exist_ok=True)
+    libraries=[('zstd',list((ROOT/'ThirdParty/zstd/lib/common').glob('*.c'))+list((ROOT/'ThirdParty/zstd/lib/compress').glob('*.c'))+list((ROOT/'ThirdParty/zstd/lib/decompress').glob('*.c'))),
+               ('lz4',[ROOT/'ThirdParty/lz4/lib'/name for name in ['lz4.c','lz4hc.c','lz4frame.c','xxhash.c']]),
+               ('bridge',list(bridge.glob('*.c')))]
+    includes=[ROOT/'ThirdParty/libarchive',bridge/'include',ROOT/'ThirdParty/zstd/lib',ROOT/'ThirdParty/zstd/lib/common',ROOT/'ThirdParty/lz4/lib']
+    BRIDGE_OBJECTS=[]
+    for prefix,files in libraries:
+        for source in sorted(files):
+            obj=cache/(prefix+'-'+source.stem+'.o')
+            if not obj.exists() or obj.stat().st_mtime<source.stat().st_mtime:
+                args=['xcrun','clang','-O2','-DZSTD_DISABLE_ASM','-DZSTD_LEGACY_SUPPORT=0','-target','arm64-apple-macos15.0']
+                for folder in includes: args+=['-I',folder]
+                run([*args,'-c',source,'-o',obj])
+            BRIDGE_OBJECTS.append(obj)
 def compile_app():
+    compile_bridge()
     sources=sorted((ROOT/'Sources/FreeMouse').rglob('*.swift'))
-    run(['xcrun','swiftc','-O','-whole-module-optimization','-swift-version','5','-target','arm64-apple-macos15.0','-module-name','FreeMouse','-module-cache-path',WORK/'release-module-cache','-parse-as-library',*sources,'-o',APP/'Contents/MacOS/OmniDesk'])
+    run(['xcrun','swiftc','-O','-whole-module-optimization','-swift-version','5','-target','arm64-apple-macos15.0','-module-name','FreeMouse','-module-cache-path',WORK/'release-module-cache','-parse-as-library','-I',ROOT/'Sources/CArchiveBridge/include',*sources,*BRIDGE_OBJECTS,'-larchive.2','-o',APP/'Contents/MacOS/OmniDesk'])
 if BUILD.exists():
     if sys.argv[1:] != ['--refresh-binary']:
         raise SystemExit(f'Refusing to overwrite {BUILD}; use --refresh-binary for this generated app only')
     info=plistlib.loads((APP/'Contents/Info.plist').read_bytes())
     assert info['CFBundleIdentifier']=='local.freemouse.toolbox'
-    assert info['CFBundleShortVersionString']=='1.1.31' and info['CFBundleVersion']=='33'
+    assert info['CFBundleShortVersionString']=='1.1.38' and info['CFBundleVersion']=='40'
     compile_app()
     copy_notices()
     run(['codesign','--force','--sign','-','--identifier','local.freemouse.toolbox',APP])
     run(['codesign','--verify','--deep','--strict','--verbose=2',APP])
-    print('PASS: refreshed 1.1.31 build 33 executable and verified signature')
+    print('PASS: refreshed 1.1.38 build 40 executable and verified signature')
     raise SystemExit(0)
 BUILD.mkdir(parents=True)
 contents=APP/'Contents'
@@ -38,7 +75,7 @@ copy_notices()
 compile_app()
 plist={
  'CFBundleName':'OmniDesk','CFBundleDisplayName':'OmniDesk','CFBundleExecutable':'OmniDesk',
- 'CFBundleIdentifier':'local.freemouse.toolbox','CFBundleShortVersionString':'1.1.31','CFBundleVersion':'33',
+ 'CFBundleIdentifier':'local.freemouse.toolbox','CFBundleShortVersionString':'1.1.38','CFBundleVersion':'40',
  'CFBundlePackageType':'APPL','CFBundleIconFile':'AppIcon','LSMinimumSystemVersion':'15.0',
  'NSLocationUsageDescription':'仅在您点击网络面板中的允许访问 Wi-Fi 详细信息时申请定位权限，用于读取当前 Wi-Fi 名称。',
  'NSLocationWhenInUseUsageDescription':'仅在您主动请求 Wi-Fi 详细信息时使用定位授权读取 Wi-Fi 名称。',
@@ -48,7 +85,7 @@ plist={
  'NSScreenCaptureUsageDescription':'在您主动使用截图、长截图或录屏时采集屏幕内容，所有处理均在本机完成。',
  'CFBundleURLTypes':[{'CFBundleURLName':'OmniDesk file actions','CFBundleURLSchemes':['freemouse']}],
  'CFBundleDocumentTypes':[{'CFBundleTypeName':'图片','CFBundleTypeRole':'Editor','LSHandlerRank':'Alternate','LSItemContentTypes':['public.png','public.jpeg','public.tiff','public.heic','com.compuserve.gif']}],
- 'NSAppleEventsUsageDescription':'仅在您使用终端或云目录菜单时，获取 Finder 选区或在终端打开选定目录。',
+ 'NSAppleEventsUsageDescription':'在您打开启动项管理或操作开关时，通过 System Events 读取和设置登录项；使用终端或云目录菜单时，获取 Finder 选区或在终端打开选定目录。',
  'NSServices':[
   {'NSMenuItem':{'default':'OmniDesk/文字转二维码'},'NSMessage':'textQRCode','NSPortName':'OmniDesk','NSSendTypes':['public.utf8-plain-text'],'NSRequiredContext':{}},
   {'NSMenuItem':{'default':'OmniDesk/Google 翻译'},'NSMessage':'translateGoogle','NSPortName':'OmniDesk','NSSendTypes':['public.utf8-plain-text'],'NSRequiredContext':{}},
@@ -78,8 +115,8 @@ extension=contents/'PlugIns/FreeMouseFinder.appex'
 # Swift 6.4 CLT can treat relative and canonical cache paths as duplicate
 # Darwin modules. Use one fresh absolute cache for each extension build.
 with tempfile.TemporaryDirectory(prefix='finder-build-',dir=BUILD) as finder_cache:
- run(['xcrun','swiftc','-O','-swift-version','5','-target','arm64-apple-macos15.0','-module-name','FreeMouseFinder','-module-cache-path',finder_cache,'-application-extension','-parse-as-library','-Xlinker','-e','-Xlinker','_NSExtensionMain',ROOT/'FinderExtension/FinderExtension.swift',ROOT/'Sources/FreeMouse/MenuCatalog.swift',ROOT/'Sources/FreeMouse/FinderMenuPreferences.swift',ROOT/'Sources/FreeMouse/FinderMenuBuilder.swift','-o',extension/'Contents/MacOS/FreeMouseFinder'])
-extension_plist={'CFBundleName':'OmniDesk Finder','CFBundleDisplayName':'OmniDesk Finder','CFBundleIdentifier':'local.freemouse.toolbox.finder','CFBundleVersion':'33','CFBundleShortVersionString':'1.1.31','CFBundlePackageType':'XPC!','CFBundleExecutable':'FreeMouseFinder','LSMinimumSystemVersion':'15.0','NSExtension':{'NSExtensionPointIdentifier':'com.apple.FinderSync','NSExtensionPrincipalClass':'FinderExtension'}}
+ run(['xcrun','swiftc','-O','-swift-version','5','-target','arm64-apple-macos15.0','-module-name','FreeMouseFinder','-module-cache-path',finder_cache,'-application-extension','-parse-as-library','-Xlinker','-e','-Xlinker','_NSExtensionMain',ROOT/'FinderExtension/FinderExtension.swift',ROOT/'Sources/FreeMouse/MenuCatalog.swift',ROOT/'Sources/FreeMouse/ArchiveFormats.swift','-I',ROOT/'Sources/CArchiveBridge/include',*BRIDGE_OBJECTS,'-larchive.2',ROOT/'Sources/FreeMouse/FinderMenuPreferences.swift',ROOT/'Sources/FreeMouse/FinderMenuBuilder.swift','-o',extension/'Contents/MacOS/FreeMouseFinder'])
+extension_plist={'CFBundleName':'OmniDesk Finder','CFBundleDisplayName':'OmniDesk Finder','CFBundleIdentifier':'local.freemouse.toolbox.finder','CFBundleVersion':'40','CFBundleShortVersionString':'1.1.38','CFBundlePackageType':'XPC!','CFBundleExecutable':'FreeMouseFinder','LSMinimumSystemVersion':'15.0','NSExtension':{'NSExtensionPointIdentifier':'com.apple.FinderSync','NSExtensionPrincipalClass':'FinderExtension'}}
 with (extension/'Contents/Info.plist').open('wb') as f: plistlib.dump(extension_plist,f)
 entitlements=BUILD/'finder-entitlements.plist'
 with entitlements.open('wb') as f: plistlib.dump({'com.apple.security.app-sandbox':True,'com.apple.security.files.user-selected.read-only':True,'com.apple.security.temporary-exception.shared-preference.read-only':['local.freemouse.toolbox.finder-menu']},f)
@@ -88,9 +125,9 @@ run(['codesign','--force','--sign','-','--identifier','local.freemouse.toolbox',
 run(['codesign','--verify','--deep','--strict','--verbose=2',APP])
 for info_path in [contents/'Info.plist', extension/'Contents/Info.plist']:
  info=plistlib.loads(info_path.read_bytes())
- assert info['CFBundleShortVersionString']=='1.1.31' and info['CFBundleVersion']=='33'
+ assert info['CFBundleShortVersionString']=='1.1.38' and info['CFBundleVersion']=='40'
 actual=plistlib.loads((contents/'Info.plist').read_bytes())
 assert actual['LSUIElement'] is True and actual['NSCameraUsageDescription']
-print('PASS: 1.1.31 build 33, system translation and configurable menu shortcuts')
+print('PASS: 1.1.38 build 40, system translation and configurable menu shortcuts')
 print(APP)
 

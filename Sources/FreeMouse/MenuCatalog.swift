@@ -13,7 +13,9 @@ enum ToolMenuCatalog {
         ("sh", "Shell"), ("cpp", "C++"), ("svg", "SVG"), ("csv", "CSV"), ("yaml", "YAML")
     ]
     static func isKnownAction(_ action: String) -> Bool {
-        entries.contains { $0.id == action } || templateFormats.contains { action == "newTemplate." + $0.id }
+        entries.contains { $0.id == action }
+            || templateFormats.contains { action == "newTemplate." + $0.id }
+            || ArchiveFormat.all.contains { action == "compress." + $0.id }
     }
 
     static let entries: [ToolMenuEntry] = [
@@ -32,6 +34,8 @@ enum ToolMenuCatalog {
         .init(id: "desktopAlias", title: "发送快捷方式到桌面", group: "文件"),
         .init(id: "airdrop", title: "隔空投送…", group: "文件"),
         .init(id: "deletePermanent", title: "彻底删除…", group: "文件"),
+        .init(id: "extract", title: "解压到同名文件夹", group: "文件"),
+        .init(id: "compress", title: "压缩", group: "文件"),
         .init(id: "favorites", title: "常用目录…", group: "打开"),
         .init(id: "terminal", title: "在终端打开…", group: "打开"),
         .init(id: "openWith", title: "使用应用打开…", group: "打开"),

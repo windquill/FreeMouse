@@ -17,7 +17,7 @@ import Testing
         return (settings, defaults)
     }
     @Test func newMenuActionsPersistWithoutChangingExistingBindings() throws {
-        for name in ["translate", "toolbox", "openImage", "recordFull", "network", "settings", "camera"] {
+        for name in ["translate", "toolbox", "openImage", "recordFull", "network", "settings", "camera", "startup", "fans", "inputSource"] {
             let action = try #require(ShortcutAction(rawValue: name))
             let (s, preferences) = settings()
             let key = KeyboardShortcut(keyCode: 17, modifiers: UInt32(cmdKey | optionKey))
